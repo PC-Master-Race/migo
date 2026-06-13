@@ -2,6 +2,12 @@
 // Phase 1: live map, follow-user camera, three zoom modes, speed HUD.
 // Phase 2: destination search bar, route polyline, maneuver banner,
 //          off-route recalculation, route options bottom sheet.
+// Phase 8 fixes:
+//   - prefAutoRecalcProvider infinite-loop removed (flat↔angled flicker fixed)
+//   - search bar + results merged into one Positioned (overlap bug fixed)
+//   - route info bar at bottom (distance, ETA, Steps, Exit)
+//   - full directions sheet (_DirectionsSheet)
+//   - POI layer zoom gate — hidden below zoom 14.5
 
 
 import 'package:flutter/material.dart';
@@ -17,7 +23,6 @@ import '../providers/map_provider.dart';
 import '../providers/routing_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/map_service.dart';
-import '../services/supabase_service.dart';
 import '../theme/bravo_theme.dart';
 import '../widgets/cartoon_avatar/user_location_marker.dart';
 import '../widgets/hud/speed_hud.dart';
@@ -47,9 +52,13 @@ const double cartoonTintOpacity = 0.18;
 /// Weaker tint for hybrid mode.
 const double hybridTintOpacity = 0.08;
 
-/// Time to wait after a keystroke before issuing a Nominatim search.
-/// Enforces Nominatim's 1 req/s policy guideline.
-const Duration _searchDebounce = Duration(milliseconds: 500);
+/// Approximate height of the search pill widget (dp). Used for layout math
+/// so the maneuver banner and hazard alerts position correctly below it.
+const double _searchBarHeight = 52.0;
+
+/// Minimum zoom level at which POI markers render on the map.
+/// Below this they crowd each other and slow rendering unnecessarily.
+const double _poiMinZoom = 14.5;
 
 // --- SCREEN ---
 
@@ -75,6 +84,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _prefetchStarted = false;
   bool _showSearchResults = false;
   bool _hasHadFirstFix = false;
+
+  /// Prevents queueing multiple off-route recalculations per render cycle.
+  /// Resets after 10 s so future off-route events can still trigger one.
+  bool _recalcQueued = false;
 
   @override
   void dispose() {
@@ -140,18 +153,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   void _onSearchSubmitted(String query) {
-    // Trigger search immediately on submit regardless of debounce.
     ref.read(geocodeQueryProvider.notifier).state = query;
     setState(() => _showSearchResults = query.isNotEmpty);
   }
 
   void _selectDestination(GeocodingResult result) {
-    // Dismiss keyboard + search results.
     _searchFocus.unfocus();
     _searchController.text = result.shortName;
     setState(() => _showSearchResults = false);
 
-    // Set destination and calculate route.
     ref.read(destinationProvider.notifier).state = result.position;
 
     final Position? pos = ref.read(positionStreamProvider).valueOrNull;
@@ -161,7 +171,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           );
     }
 
-    // Pan map to show destination.
     _mapController.move(result.position, 14.0);
     setState(() => _isFollowingUser = false);
   }
@@ -174,7 +183,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     setState(() {
       _showSearchResults = false;
       _isFollowingUser = true;
+      _recalcQueued = false;
     });
+  }
+
+  // --- DIRECTIONS ---
+
+  void _showDirectionsSheet(
+      BuildContext context, BravoRoute route, NavigationState? navState) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _DirectionsSheet(
+        route: route,
+        currentStepIndex: navState?.currentStepIndex ?? 0,
+      ),
+    );
   }
 
   // --- BUILD ---
@@ -186,7 +211,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final BravoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
     final NavigationState? navState = ref.watch(navigationStateProvider);
 
-    // Activate side-effect providers every build so they stay alive.
+    // Keep side-effect providers alive.
     ref.watch(prefAutoRecalcProvider);
     ref.watch(ttsAnnouncerProvider);
     ref.watch(hazardAlertWatcherProvider);
@@ -199,31 +224,44 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       );
     }
 
-    // Off-route: trigger recalculation once per off-route detection.
+    // Off-route: trigger one recalculation then wait 10 s before allowing
+    // another. _recalcQueued prevents multiple calls per render cycle.
     final bool isOffRoute = ref.watch(offRouteProvider);
-    if (isOffRoute && route != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(activeRouteProvider.notifier).recalculate();
+    if (isOffRoute && route != null && !_recalcQueued) {
+      _recalcQueued = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await ref.read(activeRouteProvider.notifier).recalculate();
+        await Future<void>.delayed(const Duration(seconds: 10));
+        if (mounted) setState(() => _recalcQueued = false);
       });
     }
+
+    // Layout helpers — all vertical positions derive from status bar height
+    // so the UI lands in the right place on every screen size.
+    final double statusBarH = MediaQuery.of(context).padding.top;
+    final double searchBottom = statusBarH + 8 + _searchBarHeight;
+    // Route info bar is ~84 dp; elements at the bottom shift up by this much
+    // when a route is active so they don't hide behind the bar.
+    final double routeBarH = route != null ? 84.0 : 0.0;
 
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: <Widget>[
-          // Base map — wrapped in a perspective tilt when actively navigating.
+          // Base map — perspective-tilted when actively navigating.
           _buildMapWithTilt(zoomMode, position, route, navState),
 
-          // Attribution (bottom right).
+          // Attribution badge (bottom-right corner).
           _buildAttributionBadge(zoomMode),
 
-          // Search bar + results overlay (top).
-          _buildSearchOverlay(context),
+          // Search bar + inline results dropdown (single Positioned widget so
+          // results can never overlap the search pill).
+          _buildSearchBar(context, statusBarH),
 
-          // Maneuver banner (below search bar, only when navigating).
+          // Maneuver banner — below the search bar when navigating.
           if (navState != null)
             Positioned(
-              top: 80,
+              top: searchBottom + 8,
               left: 12,
               right: 12,
               child: _ManeuverBanner(navState: navState),
@@ -232,68 +270,59 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           // Off-route recalculating indicator.
           if (isOffRoute && route != null)
             Positioned(
-              top: navState != null ? 154 : 80,
+              top: navState != null ? searchBottom + 90 : searchBottom + 8,
               left: 0,
               right: 0,
               child: const _OffRouteBadge(),
             ),
 
-          // Speed HUD — bottom-left so it never overlaps the status bar
-          // or the search/maneuver banners at the top.
-          const Positioned(
-            bottom: 32,
+          // Route info bar at the very bottom (distance, ETA, Steps, Exit).
+          if (route != null)
+            _buildRouteInfoBar(context, route, navState),
+
+          // Speed HUD — raised when the route info bar is visible.
+          Positioned(
+            bottom: routeBarH + 32,
             left: 16,
-            child: SpeedHud(),
+            child: const SpeedHud(),
           ),
 
-          // Report hazard FAB — always visible (bottom-left stack).
+          // Report hazard FAB.
           Positioned(
-            bottom: 100,
+            bottom: routeBarH + 100,
             left: 16,
             child: _ReportHazardButton(context: context),
           ),
 
-          // Route options button (above the report button when navigating).
-          if (route != null)
-            Positioned(
-              bottom: 160,
-              left: 16,
-              child: _RouteOptionsButton(context: context),
-            ),
-
-          // Bravos balance chip — bottom-right above recenter button.
-          const Positioned(
-            bottom: 88,
+          // Bravos balance chip.
+          Positioned(
+            bottom: routeBarH + 88,
             right: 16,
-            child: BravosHudChip(),
+            child: const BravosHudChip(),
           ),
 
-          // Recenter button (bottom-right, when not following).
+          // Recenter button (only when not following user).
           if (!_isFollowingUser)
             Positioned(
-              bottom: 32,
+              bottom: routeBarH + 32,
               right: 16,
               child: RecenterButton(onPressed: _recenterOnUser),
             ),
 
-          // Settings gear — top-right, tucked below the status bar.
+          // Settings gear — top-right, below status bar.
           Positioned(
-            top: MediaQuery.of(context).padding.top + 12,
+            top: statusBarH + 12,
             right: 16,
             child: _SettingsButton(context: context),
           ),
 
-          // Search results dropdown.
-          if (_showSearchResults) _buildSearchResultsOverlay(),
-
-          // Phase 3: hazard alert banner (above map, below search bar).
+          // Hazard alert banners — below maneuver banner when navigating.
           Positioned(
-            top: navState != null ? 160 : 86,
+            top: navState != null ? searchBottom + 96 : searchBottom + 8,
             left: 0,
             right: 0,
             child: const HazardAlertStack(),
           ),
-
         ],
       ),
     );
@@ -301,9 +330,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   // --- MAP LAYERS ---
 
-  /// Wraps [_buildMap] in a perspective Transform when [navState] is active,
-  /// giving a Waze-like driving-perspective tilt (45-60 degrees). Returns the
-  /// flat map when not navigating so the top-down view is fully interactive.
   Widget _buildMapWithTilt(
     MapZoomMode zoomMode,
     Position? position,
@@ -313,12 +339,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final Widget map = _buildMap(zoomMode, position, route);
     if (navState == null) return map;
     return Transform(
-      // Anchor the tilt at the bottom centre so the user's position
-      // stays in place while the horizon recedes toward the top.
       alignment: Alignment.bottomCenter,
       transform: Matrix4.identity()
-        ..setEntry(3, 2, mapTiltPerspective)   // perspective depth
-        ..rotateX(-mapTiltRadians),            // tilt top away from viewer
+        ..setEntry(3, 2, mapTiltPerspective)
+        ..rotateX(-mapTiltRadians),
       child: map,
     );
   }
@@ -348,7 +372,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ),
         _buildCartoonTintOverlay(zoomMode),
 
-        // Route polyline — drawn below the user marker so the dot stays on top.
+        // Route polyline (below user marker so the dot stays on top).
         if (route != null && route.waypoints.isNotEmpty)
           PolylineLayer(
             polylines: <Polyline>[
@@ -375,29 +399,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ],
           ),
 
-        // Phase 3: hazard pins layer.
         _buildHazardLayer(ref),
-
-        // Phase 5: family member live-location layer.
         _buildFamilyLayer(ref),
-
-        // Phase 6: gas station price pins.
         _buildGasLayer(ref),
-
-        // Phase 6: POI pins (restaurants, parking, etc.).
         _buildPoiLayer(ref),
 
-        // User position marker.
         if (position != null) _buildUserMarkerLayer(position),
       ],
     );
   }
 
-
-  /// Builds the family member MarkerLayer from Supabase Realtime stream.
-  /// Only shows members who are actively sharing and have a non-expired ping.
   Widget _buildFamilyLayer(WidgetRef ref) {
-    // Activate the publisher side-effect (no-op if sharing is off).
     ref.watch(locationPublisherProvider);
 
     final List<FamilyLocation> locations =
@@ -421,8 +433,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  /// Builds gas station price-bubble markers.
-  /// Hidden when the gas layer toggle is off or no stations are nearby.
   Widget _buildGasLayer(WidgetRef ref) {
     final bool enabled = ref.watch(gasLayerEnabledProvider);
     if (!enabled) return const SizedBox.shrink();
@@ -461,9 +471,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  /// Builds POI pin markers for all active categories.
-  /// Hidden when no categories are toggled on.
+  /// POI layer — hidden below [_poiMinZoom] so parking/restaurants don't
+  /// flood the screen at city or region zoom levels.
   Widget _buildPoiLayer(WidgetRef ref) {
+    final double zoom = ref.watch(currentZoomProvider);
+    if (zoom < _poiMinZoom) return const SizedBox.shrink();
+
     final Set<PoiCategory> active = ref.watch(activePoisProvider);
     if (active.isEmpty) return const SizedBox.shrink();
 
@@ -530,20 +543,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  /// Builds the hazard pin MarkerLayer from [nearbyHazardsProvider].
-  /// Confirmed hazards are full-opacity; own pending pins are dimmed.
   Widget _buildHazardLayer(WidgetRef ref) {
     final List<Hazard> hazards =
         ref.watch(nearbyHazardsProvider).valueOrNull ?? <Hazard>[];
     if (hazards.isEmpty) return const SizedBox.shrink();
 
-    final String? myId = SupabaseService.isConnected
-        ? null // reporter_id not available client-side without extra query
-        : null;
-
     return MarkerLayer(
       markers: hazards.map((Hazard h) {
-        final bool isOwn = myId != null;
         return Marker(
           point: h.position,
           width: hazardIconSize,
@@ -578,125 +584,214 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  // --- SEARCH OVERLAY ---
+  // --- SEARCH BAR ---
 
-  Widget _buildSearchOverlay(BuildContext context) {
+  /// Search pill + inline results in a single Positioned so the dropdown
+  /// always renders directly below the pill — never overlapping it.
+  Widget _buildSearchBar(BuildContext context, double statusBarH) {
     return Positioned(
-      top: 44,
+      top: statusBarH + 8,
       left: 12,
       right: 12,
-      child: SafeArea(
-        child: Material(
-          elevation: 4,
-          borderRadius: BorderRadius.circular(28),
-          color: Colors.white,
-          child: Row(
-            children: <Widget>[
-              const SizedBox(width: 16),
-              const Icon(Icons.search_rounded, color: migoInk, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocus,
-                  decoration: const InputDecoration(
-                    hintText: 'Where to?',
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(28),
+            color: Colors.white,
+            child: Row(
+              children: <Widget>[
+                const SizedBox(width: 16),
+                const Icon(Icons.search_rounded, color: migoInk, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    focusNode: _searchFocus,
+                    decoration: const InputDecoration(
+                      hintText: 'Where to?',
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    style: const TextStyle(fontSize: 15, color: migoInk),
+                    onChanged: _onSearchChanged,
+                    onSubmitted: _onSearchSubmitted,
+                    textInputAction: TextInputAction.search,
                   ),
-                  style: const TextStyle(fontSize: 15, color: migoInk),
-                  onChanged: _onSearchChanged,
-                  onSubmitted: _onSearchSubmitted,
-                  textInputAction: TextInputAction.search,
                 ),
-              ),
-              if (_searchController.text.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                  color: migoInk.withValues(alpha: 0.5),
-                  onPressed: _clearSearch,
-                ),
-              // Route options (gear icon) when navigating.
-              if (ref.watch(activeRouteProvider).valueOrNull != null)
-                IconButton(
-                  icon: const Icon(Icons.tune_rounded, size: 20),
-                  color: migoCoral,
-                  tooltip: 'Route options',
-                  onPressed: () => RouteOptionsScreen.showSheet(context),
-                ),
-            ],
+                if (_searchController.text.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    color: migoInk.withValues(alpha: 0.5),
+                    onPressed: _clearSearch,
+                  ),
+                // Route options tune icon — only when a route is active.
+                if (ref.watch(activeRouteProvider).valueOrNull != null)
+                  IconButton(
+                    icon: const Icon(Icons.tune_rounded, size: 20),
+                    color: migoCoral,
+                    tooltip: 'Route options',
+                    onPressed: () => RouteOptionsScreen.showSheet(context),
+                  ),
+              ],
+            ),
           ),
-        ),
+          if (_showSearchResults) ...<Widget>[
+            const SizedBox(height: 4),
+            _buildSearchResultsList(),
+          ],
+        ],
       ),
     );
   }
 
-  Widget _buildSearchResultsOverlay() {
+  Widget _buildSearchResultsList() {
     final AsyncValue<List<GeocodingResult>> results =
         ref.watch(geocodeResultsProvider);
 
-    return Positioned(
-      top: 104,
-      left: 12,
-      right: 12,
-      child: Material(
-        elevation: 8,
-        borderRadius: BorderRadius.circular(16),
-        color: Colors.white,
-        child: results.when(
-          loading: () => const Padding(
-            padding: EdgeInsets.all(16),
-            child: Center(
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: migoCoral,
-                ),
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(16),
+      color: Colors.white,
+      child: results.when(
+        loading: () => const Padding(
+          padding: EdgeInsets.all(16),
+          child: Center(
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: migoCoral,
               ),
             ),
           ),
-          error: (_, __) => const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('Search unavailable — check connection'),
-          ),
-          data: (List<GeocodingResult> items) {
-            if (items.isEmpty) {
-              return const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('No results found'),
-              );
-            }
-            return ListView.separated(
-              shrinkWrap: true,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
-              itemBuilder: (BuildContext ctx, int i) {
-                final GeocodingResult r = items[i];
-                return ListTile(
-                  leading: const Icon(Icons.place_rounded, color: migoCoral),
-                  title: Text(
-                    r.shortName,
-                    style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: migoInk),
-                  ),
-                  subtitle: Text(
-                    r.displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style:
-                        TextStyle(fontSize: 12, color: migoInk.withValues(alpha: 0.5)),
-                  ),
-                  onTap: () => _selectDestination(r),
-                );
-              },
+        ),
+        error: (_, __) => const Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('Search unavailable — check connection'),
+        ),
+        data: (List<GeocodingResult> items) {
+          if (items.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No results found'),
             );
-          },
+          }
+          return ListView.separated(
+            shrinkWrap: true,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: items.length,
+            separatorBuilder: (_, __) =>
+                const Divider(height: 1, indent: 16),
+            itemBuilder: (BuildContext ctx, int i) {
+              final GeocodingResult r = items[i];
+              return ListTile(
+                leading:
+                    const Icon(Icons.place_rounded, color: migoCoral),
+                title: Text(
+                  r.shortName,
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: migoInk),
+                ),
+                subtitle: Text(
+                  r.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: migoInk.withValues(alpha: 0.5)),
+                ),
+                onTap: () => _selectDestination(r),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  // --- ROUTE INFO BAR ---
+
+  /// Persistent bottom bar when a route is active.
+  /// Shows remaining distance + ETA on the left; Steps and Exit buttons on the right.
+  Widget _buildRouteInfoBar(
+      BuildContext context, BravoRoute route, NavigationState? navState) {
+    final double distM =
+        navState?.distanceRemainingMeters ?? route.distanceMeters;
+    final double secs =
+        navState?.timeRemainingSeconds ?? route.estimatedSeconds;
+    final int mins = (secs / 60).round();
+
+    final String distLabel = distM < 1000
+        ? '${distM.round()} m'
+        : '${(distM / 1000).toStringAsFixed(1)} km';
+    final String timeLabel = mins < 60
+        ? '$mins min'
+        : '${mins ~/ 60} h ${mins % 60} min';
+
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Material(
+        elevation: 12,
+        color: migoInk,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                // Time + distance.
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        timeLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          height: 1.1,
+                        ),
+                      ),
+                      Text(
+                        distLabel,
+                        style: const TextStyle(
+                            color: Colors.white60, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                // Steps / directions button.
+                _RouteActionButton(
+                  icon: Icons.list_rounded,
+                  label: 'Steps',
+                  color: migoAmber,
+                  onTap: () =>
+                      _showDirectionsSheet(context, route, navState),
+                ),
+                const SizedBox(width: 4),
+                // Cancel route.
+                _RouteActionButton(
+                  icon: Icons.close_rounded,
+                  label: 'Exit',
+                  color: migoCoral,
+                  onTap: _clearSearch,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -725,9 +820,235 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 }
 
-// --- MANEUVER BANNER ---
+// ============================================================
+// ROUTE ACTION BUTTON
+// ============================================================
 
-/// Top-of-screen card showing the next turn instruction and distance.
+class _RouteActionButton extends StatelessWidget {
+  const _RouteActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                  color: color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// DIRECTIONS SHEET
+// ============================================================
+
+/// Full scrollable step list as a draggable bottom sheet.
+/// Current step is highlighted in coral; completed steps are dimmed.
+class _DirectionsSheet extends StatelessWidget {
+  const _DirectionsSheet({
+    required this.route,
+    required this.currentStepIndex,
+  });
+
+  final BravoRoute route;
+  final int currentStepIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.55,
+      minChildSize: 0.3,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (_, ScrollController scroll) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF1A1A2E),
+            borderRadius:
+                BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: <Widget>[
+              // Drag handle.
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 8),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              // Header.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.directions_rounded,
+                        color: migoAmber, size: 20),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Directions',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${route.steps.length} steps',
+                      style: const TextStyle(
+                          color: Colors.white54, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: Colors.white12, height: 1),
+              // Step list.
+              Expanded(
+                child: ListView.separated(
+                  controller: scroll,
+                  padding: const EdgeInsets.only(bottom: 32),
+                  itemCount: route.steps.length,
+                  separatorBuilder: (_, __) => const Divider(
+                      color: Colors.white12, height: 1, indent: 64),
+                  itemBuilder: (BuildContext ctx, int i) {
+                    return _StepTile(
+                      step: route.steps[i],
+                      isCurrent: i == currentStepIndex,
+                      isDone: i < currentStepIndex,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _StepTile extends StatelessWidget {
+  const _StepTile({
+    required this.step,
+    required this.isCurrent,
+    required this.isDone,
+  });
+
+  final ManeuverStep step;
+  final bool isCurrent;
+  final bool isDone;
+
+  @override
+  Widget build(BuildContext context) {
+    final double distMi = step.distanceMiles;
+    final String distLabel = distMi < 0.1
+        ? '${(distMi * 5280).round()} ft'
+        : '${distMi.toStringAsFixed(1)} mi';
+
+    return ListTile(
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: isCurrent
+              ? migoCoral.withValues(alpha: 0.2)
+              : Colors.white.withValues(alpha: isDone ? 0.04 : 0.08),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          _iconFor(step.type),
+          color: isCurrent
+              ? migoCoral
+              : isDone
+                  ? Colors.white24
+                  : Colors.white60,
+          size: 22,
+        ),
+      ),
+      title: Text(
+        step.instruction,
+        style: TextStyle(
+          color: isDone ? Colors.white38 : Colors.white,
+          fontSize: 14,
+          fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
+        ),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: step.streetNames.isNotEmpty
+          ? Text(
+              step.streetNames.first,
+              style: const TextStyle(color: Colors.white38, fontSize: 12),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            )
+          : null,
+      trailing: Text(
+        distLabel,
+        style: TextStyle(
+          color: isCurrent ? migoAmber : Colors.white38,
+          fontSize: 13,
+          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+    );
+  }
+
+  IconData _iconFor(ManeuverType type) {
+    return switch (type) {
+      ManeuverType.right => Icons.turn_right_rounded,
+      ManeuverType.sharpRight => Icons.turn_sharp_right_rounded,
+      ManeuverType.slightRight => Icons.turn_slight_right_rounded,
+      ManeuverType.rampRight => Icons.turn_right_rounded,
+      ManeuverType.left => Icons.turn_left_rounded,
+      ManeuverType.sharpLeft => Icons.turn_sharp_left_rounded,
+      ManeuverType.slightLeft => Icons.turn_slight_left_rounded,
+      ManeuverType.rampLeft => Icons.turn_left_rounded,
+      ManeuverType.uTurn => Icons.u_turn_left_rounded,
+      ManeuverType.merge => Icons.merge_rounded,
+      ManeuverType.roundaboutEnter ||
+      ManeuverType.roundaboutExit =>
+        Icons.roundabout_left_rounded,
+      ManeuverType.destination => Icons.flag_rounded,
+      ManeuverType.start => Icons.my_location_rounded,
+      _ => Icons.straight_rounded,
+    };
+  }
+}
+
+// ============================================================
+// MANEUVER BANNER
+// ============================================================
+
 class _ManeuverBanner extends StatelessWidget {
   const _ManeuverBanner({required this.navState});
   final NavigationState navState;
@@ -737,8 +1058,6 @@ class _ManeuverBanner extends StatelessWidget {
     final ManeuverStep step = navState.currentStep;
     final double distM = navState.distanceToNextManeuverMeters;
 
-    // Format distance: metres under 500, then feet are US convention, but for
-    // Phase 2 we use metres. TODO: [unit preference toggle] [Phase 7 polish]
     final String distLabel = distM < 50
         ? 'Now'
         : distM < 1000
@@ -793,7 +1112,6 @@ class _ManeuverBanner extends StatelessWidget {
   }
 }
 
-/// Icon representing the maneuver direction.
 class _ManeuverIcon extends StatelessWidget {
   const _ManeuverIcon({required this.type});
   final ManeuverType type;
@@ -831,7 +1149,9 @@ class _ManeuverIcon extends StatelessWidget {
   }
 }
 
-// --- OFF-ROUTE BADGE ---
+// ============================================================
+// OFF-ROUTE BADGE
+// ============================================================
 
 class _OffRouteBadge extends StatelessWidget {
   const _OffRouteBadge();
@@ -873,7 +1193,9 @@ class _OffRouteBadge extends StatelessWidget {
   }
 }
 
-// --- DESTINATION MARKER ---
+// ============================================================
+// DESTINATION MARKER
+// ============================================================
 
 class _DestinationMarker extends StatelessWidget {
   const _DestinationMarker();
@@ -886,35 +1208,19 @@ class _DestinationMarker extends StatelessWidget {
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white, width: 2.5),
         boxShadow: const <BoxShadow>[
-          BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2)),
+          BoxShadow(
+              color: Colors.black26, blurRadius: 6, offset: Offset(0, 2)),
         ],
       ),
-      child: const Icon(Icons.flag_rounded, color: Colors.white, size: 16),
+      child:
+          const Icon(Icons.flag_rounded, color: Colors.white, size: 16),
     );
   }
 }
 
-// --- ROUTE OPTIONS BUTTON ---
-
-class _RouteOptionsButton extends StatelessWidget {
-  const _RouteOptionsButton({required this.context});
-  final BuildContext context;
-
-  @override
-  Widget build(BuildContext context) {
-    return FloatingActionButton.small(
-      heroTag: 'routeOptions',
-      backgroundColor: Colors.white,
-      foregroundColor: migoCoral,
-      elevation: 4,
-      tooltip: 'Route options',
-      onPressed: () => RouteOptionsScreen.showSheet(context),
-      child: const Icon(Icons.tune_rounded),
-    );
-  }
-}
-
-// --- REPORT HAZARD BUTTON ---
+// ============================================================
+// REPORT HAZARD BUTTON
+// ============================================================
 
 class _ReportHazardButton extends StatelessWidget {
   const _ReportHazardButton({required this.context});
@@ -934,7 +1240,9 @@ class _ReportHazardButton extends StatelessWidget {
   }
 }
 
-// --- SETTINGS BUTTON ---
+// ============================================================
+// SETTINGS BUTTON
+// ============================================================
 
 class _SettingsButton extends StatelessWidget {
   const _SettingsButton({required this.context});
@@ -947,13 +1255,14 @@ class _SettingsButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: () => Navigator.of(context).pushNamed(SettingsScreen.routeName),
+        onTap: () =>
+            Navigator.of(context).pushNamed(SettingsScreen.routeName),
         child: const Padding(
           padding: EdgeInsets.all(8),
-          child: Icon(Icons.settings_rounded,
-              color: Colors.white, size: 20),
+          child: Icon(Icons.settings_rounded, color: Colors.white, size: 20),
         ),
       ),
     );
   }
 }
+                                            

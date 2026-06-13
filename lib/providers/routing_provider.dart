@@ -130,14 +130,20 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
 /// active. Using a Provider (not a StateProvider) means this watcher is
 /// always alive while the ProviderScope is alive.
 final Provider<void> prefAutoRecalcProvider = Provider<void>((Ref ref) {
+  // Watch ONLY preferences. Do NOT watch activeRouteProvider here — that
+  // creates an infinite recalculation loop:
+  //   route resolves → provider re-runs → recalculate() → loading()
+  //   → route resolves → provider re-runs → ∞
+  // Symptom: map flickers flat↔angled and routing appears permanently broken.
   ref.watch(routePreferencesProvider);
-  // Only recalculate if a route is currently active.
-  final AsyncValue<BravoRoute?> routeState = ref.watch(activeRouteProvider);
-  if (routeState.valueOrNull != null) {
-    // Schedule the recalculation after the current build cycle completes so
-    // we don't call setState during build.
-    Future<void>.microtask(() => ref.read(activeRouteProvider.notifier).recalculate());
-  }
+  Future<void>.microtask(() {
+    // read (not watch) — this provider must NOT re-run when the route changes,
+    // only when preferences change.
+    final AsyncValue<BravoRoute?> routeState = ref.read(activeRouteProvider);
+    if (routeState.valueOrNull != null) {
+      ref.read(activeRouteProvider.notifier).recalculate();
+    }
+  });
 });
 
 // ============================================================
@@ -271,9 +277,4 @@ final FutureProvider<List<GeocodingResult>> geocodeResultsProvider =
     FutureProvider<List<GeocodingResult>>((Ref ref) async {
   final String query = ref.watch(geocodeQueryProvider);
   if (query.trim().length < 2) return <GeocodingResult>[];
-  // Small debounce: wait 400 ms after the last keystroke before searching.
-  await Future<void>.delayed(const Duration(milliseconds: 400));
-  // If the query changed while we were waiting, Riverpod will cancel this and
-  // restart — so this is effectively debounced.
-  return GeocodingService().search(query);
-});
+  // Small debounce: wait 400
