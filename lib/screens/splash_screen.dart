@@ -1,11 +1,11 @@
-// splash_screen.dart — First screen the user sees. Shows Migo branding while
+// splash_screen.dart — First screen the user sees. Shows Bravo Maps branding while
 // the app decides whether to send them to onboarding or straight to the map.
 
 import 'package:flutter/material.dart';
 import 'package:hive_ce/hive.dart';
 
 import '../constants.dart';
-import '../theme/migo_theme.dart';
+import '../theme/bravo_theme.dart';
 import 'map_screen.dart';
 import 'onboarding_screen.dart';
 
@@ -62,12 +62,12 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            // TODO: [replace with the Migo cartoon mascot asset]
+            // TODO: [replace with the Bravo Maps cartoon mascot asset]
             // [deferred: avatar art assets are produced in Phase 4/7]
             const Icon(Icons.navigation_rounded, size: 96, color: Colors.white),
             const SizedBox(height: 16),
             Text(
-              'Migo',
+              'Bravo Maps',
               style: Theme.of(context).textTheme.displayMedium?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,

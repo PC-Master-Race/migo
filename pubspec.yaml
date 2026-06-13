@@ -1,8 +1,8 @@
-# pubspec.yaml — Migo dependency manifest.
+# pubspec.yaml — Bravo Maps dependency manifest.
 # Defines all packages, assets, and fonts. Every dependency below is chosen to
 # honor the privacy constraints in PRODUCT_BRIEF.md (no Google/Meta/ad SDKs).
 
-name: migo
+name: bravo_maps
 description: Privacy-first navigation app with offline maps, ALPR avoidance, and personality-driven cartoon avatars.
 publish_to: "none" # Not a pub.dev package; this is an application.
 version: 0.2.0+2   # Phase 2 bump.

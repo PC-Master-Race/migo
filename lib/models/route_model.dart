@@ -167,7 +167,7 @@ class ManeuverStep {
   /// Estimated time in seconds to reach this maneuver.
   final double durationSeconds;
 
-  /// Index into [MigoRoute.waypoints] where this maneuver occurs.
+  /// Index into [BravoRoute.waypoints] where this maneuver occurs.
   /// Used to compute the map position of each turn marker.
   final int shapeIndex;
 
@@ -178,9 +178,9 @@ class ManeuverStep {
 // --- ROUTE ---
 
 /// A complete computed route ready for turn-by-turn navigation.
-class MigoRoute {
+class BravoRoute {
   /// Creates a route result.
-  const MigoRoute({
+  const BravoRoute({
     required this.waypoints,
     required this.distanceMeters,
     required this.estimatedSeconds,

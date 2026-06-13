@@ -16,7 +16,7 @@ const String satelliteTileUrlTemplate =
 
 /// User-Agent sent with every tile/Overpass/Nominatim request. OSM's usage
 /// policy requires apps to identify themselves; generic agents get blocked.
-const String osmUserAgent = 'migo-navigation-app (privacy-first OSS project)';
+const String osmUserAgent = 'bravo-maps-app (privacy-first OSS project)';
 
 /// Overpass API endpoint used to query OSM data (speed limits, POIs, fuel
 /// stations). The main public instance; can be swapped for a self-hosted one.
@@ -129,6 +129,9 @@ const String hiveBoxTileMetadata = 'tile_metadata';
 
 /// Stores user settings (cache radius, WiFi-only flags, toggles).
 const String hiveBoxSettings = 'settings';
+
+/// Hive key for the JSON-encoded list of saved locations (home, work, favs).
+const String hiveKeySavedLocations = 'saved_locations';
 
 // --- USER MARKER ---
 

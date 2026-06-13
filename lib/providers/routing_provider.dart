@@ -44,9 +44,9 @@ final StateProvider<RoutePreferences> routePreferencesProvider =
 /// Screens call [RouteNotifier.calculate] to kick off a new route request;
 /// the provider automatically recalculates when preferences change while a
 /// destination is set (see [prefAutoRecalcProvider]).
-final StateNotifierProvider<RouteNotifier, AsyncValue<MigoRoute?>>
+final StateNotifierProvider<RouteNotifier, AsyncValue<BravoRoute?>>
     activeRouteProvider =
-    StateNotifierProvider<RouteNotifier, AsyncValue<MigoRoute?>>(
+    StateNotifierProvider<RouteNotifier, AsyncValue<BravoRoute?>>(
   (Ref ref) => RouteNotifier(ref),
 );
 
@@ -58,8 +58,8 @@ RouteNotifier routeNotifierOf(WidgetRef ref) =>
 // NOTIFIER
 // ============================================================
 
-class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
-  RouteNotifier(this._ref) : super(const AsyncValue<MigoRoute?>.data(null));
+class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
+  RouteNotifier(this._ref) : super(const AsyncValue<BravoRoute?>.data(null));
 
   final Ref _ref;
   final RoutingService _service = RoutingService();
@@ -75,11 +75,11 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
     List<LatLng> alprLocations = const <LatLng>[],
   }) async {
     final int token = ++_calcToken;
-    state = const AsyncValue<MigoRoute?>.loading();
+    state = const AsyncValue<BravoRoute?>.loading();
 
     final position = _ref.read(positionStreamProvider).valueOrNull;
     if (position == null) {
-      state = AsyncValue<MigoRoute?>.error(
+      state = AsyncValue<BravoRoute?>.error(
         'Waiting for GPS fix',
         StackTrace.current,
       );
@@ -89,7 +89,7 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
     final RoutePreferences prefs = _ref.read(routePreferencesProvider);
     final LatLng origin = LatLng(position.latitude, position.longitude);
 
-    final AsyncValue<MigoRoute?> result = await AsyncValue.guard<MigoRoute?>(
+    final AsyncValue<BravoRoute?> result = await AsyncValue.guard<BravoRoute?>(
       () => _service.calculateRoute(
         origin: origin,
         destination: destination,
@@ -106,7 +106,7 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
   /// Recalculates from the current GPS position using the same destination
   /// and updated preferences. Called on preference toggle changes or off-route.
   Future<void> recalculate({List<LatLng> alprLocations = const <LatLng>[]}) async {
-    final MigoRoute? current = state.valueOrNull;
+    final BravoRoute? current = state.valueOrNull;
     if (current == null) return;
     await calculate(
       destination: current.destination,
@@ -117,7 +117,7 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
   /// Clears the active route and cancels any in-flight calculation.
   void clear() {
     _calcToken++;
-    state = const AsyncValue<MigoRoute?>.data(null);
+    state = const AsyncValue<BravoRoute?>.data(null);
   }
 }
 
@@ -130,14 +130,20 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
 /// active. Using a Provider (not a StateProvider) means this watcher is
 /// always alive while the ProviderScope is alive.
 final Provider<void> prefAutoRecalcProvider = Provider<void>((Ref ref) {
+  // Watch ONLY preferences. Do NOT watch activeRouteProvider here — that
+  // creates an infinite recalculation loop:
+  //   route resolves → provider re-runs → recalculate() → loading()
+  //   → route resolves → provider re-runs → ∞
+  // Symptom: map flickers flat↔angled and routing appears permanently broken.
   ref.watch(routePreferencesProvider);
-  // Only recalculate if a route is currently active.
-  final AsyncValue<MigoRoute?> routeState = ref.watch(activeRouteProvider);
-  if (routeState.valueOrNull != null) {
-    // Schedule the recalculation after the current build cycle completes so
-    // we don't call setState during build.
-    Future<void>.microtask(() => ref.read(activeRouteProvider.notifier).recalculate());
-  }
+  Future<void>.microtask(() {
+    // read (not watch) — this provider must NOT re-run when the route changes,
+    // only when preferences change.
+    final AsyncValue<BravoRoute?> routeState = ref.read(activeRouteProvider);
+    if (routeState.valueOrNull != null) {
+      ref.read(activeRouteProvider.notifier).recalculate();
+    }
+  });
 });
 
 // ============================================================
@@ -148,7 +154,7 @@ final Provider<void> prefAutoRecalcProvider = Provider<void>((Ref ref) {
 /// from the computed route polyline. Watched by map_screen to trigger
 /// recalculation.
 final Provider<bool> offRouteProvider = Provider<bool>((Ref ref) {
-  final MigoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
+  final BravoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
   if (route == null || route.waypoints.isEmpty) return false;
 
   final position = ref.watch(positionStreamProvider).valueOrNull;
@@ -168,7 +174,7 @@ final Provider<bool> offRouteProvider = Provider<bool>((Ref ref) {
 /// Returns null when no route is active.
 final Provider<NavigationState?> navigationStateProvider =
     Provider<NavigationState?>((Ref ref) {
-  final MigoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
+  final BravoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
   if (route == null || route.steps.isEmpty) return null;
 
   final position = ref.watch(positionStreamProvider).valueOrNull;
@@ -267,13 +273,24 @@ final StateProvider<String> geocodeQueryProvider =
 /// Geocoding results for the current [geocodeQueryProvider] value.
 /// Auto-fires whenever the query changes. Returns empty list while loading
 /// or on error — never throws.
+///
+/// The user's GPS position is passed to [GeocodingService.search] so
+/// Nominatim receives a ~50 km viewbox and returns nearby results first.
 final FutureProvider<List<GeocodingResult>> geocodeResultsProvider =
     FutureProvider<List<GeocodingResult>>((Ref ref) async {
   final String query = ref.watch(geocodeQueryProvider);
   if (query.trim().length < 2) return <GeocodingResult>[];
   // Small debounce: wait 400 ms after the last keystroke before searching.
+  // Riverpod cancels+restarts if the query changes during the wait —
+  // this is effectively debounced with no extra bookkeeping.
   await Future<void>.delayed(const Duration(milliseconds: 400));
-  // If the query changed while we were waiting, Riverpod will cancel this and
-  // restart — so this is effectively debounced.
-  return GeocodingService().search(query);
+
+  // read (not watch) the position — we don't want every GPS update to
+  // re-fire a search; only query changes should trigger that.
+  final position = ref.read(positionStreamProvider).valueOrNull;
+  final LatLng? userPos = position != null
+      ? LatLng(position.latitude, position.longitude)
+      : null;
+
+  return GeocodingService().search(query, userPosition: userPos);
 });

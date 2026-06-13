@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/route_model.dart';
 import '../providers/routing_provider.dart';
-import '../theme/migo_theme.dart';
+import '../theme/bravo_theme.dart';
 
 // --- SCREEN ---
 
@@ -40,8 +40,8 @@ class RouteOptionsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final RoutePreferences prefs = ref.watch(routePreferencesProvider);
-    final AsyncValue<MigoRoute?> routeState = ref.watch(activeRouteProvider);
-    final MigoRoute? route = routeState.valueOrNull;
+    final AsyncValue<BravoRoute?> routeState = ref.watch(activeRouteProvider);
+    final BravoRoute? route = routeState.valueOrNull;
 
     return SafeArea(
       child: Padding(
@@ -158,7 +158,7 @@ class RouteOptionsScreen extends ConsumerWidget {
 
 class _RouteSummaryCard extends StatelessWidget {
   const _RouteSummaryCard({required this.route});
-  final MigoRoute route;
+  final BravoRoute route;
 
   @override
   Widget build(BuildContext context) {

@@ -1,4 +1,4 @@
-// migo_theme.dart — Colors, fonts, and the cartoon style guide in code form.
+// bravo_theme.dart — Colors, fonts, and the cartoon style guide in code form.
 // Single source of truth for Migo's warm, friendly visual identity. Every
 // screen and widget pulls colors and text styles from here — never inline.
 
@@ -53,7 +53,7 @@ const Color migoPlum = Color(0xFF6D4C7D);
 /// Builds the app-wide [ThemeData] from the Migo palette and typography.
 /// Returns a light theme; dark mode is a Phase 7 polish item.
 /// TODO: [dark mode variant for night driving] [deferred to Phase 7 polish]
-ThemeData buildMigoTheme() {
+ThemeData buildBravoTheme() {
   final ColorScheme migoColorScheme = ColorScheme.fromSeed(
     seedColor: migoCoral,
     primary: migoCoral,

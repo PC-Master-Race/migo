@@ -22,20 +22,38 @@ import '../models/route_model.dart';
 class GeocodingService {
   /// Searches for places matching [query].
   ///
-  /// Returns up to [nominatimMaxResults] results ordered by Nominatim's
-  /// relevance score. Returns an empty list on any network or parse error so
-  /// callers can degrade gracefully.
-  Future<List<GeocodingResult>> search(String query) async {
+  /// When [userPosition] is provided a ~50 km viewbox is added so nearby
+  /// results rank first. [bounded]=0 means Nominatim *prefers* within the box
+  /// but still falls back outside — so "Yoshinoya" finds your nearest location
+  /// first, and an explicit "Yoshinoya Beverly Hills" still resolves anywhere.
+  ///
+  /// Returns up to [nominatimMaxResults] results. Returns an empty list on
+  /// any network or parse error so callers can degrade gracefully.
+  Future<List<GeocodingResult>> search(
+    String query, {
+    LatLng? userPosition,
+  }) async {
     if (query.trim().isEmpty) return <GeocodingResult>[];
 
-    final Uri uri = Uri.parse(nominatimSearchUrl).replace(
-      queryParameters: <String, String>{
-        'q': query,
-        'format': 'json',
-        'limit': '$nominatimMaxResults',
-        'addressdetails': '1',
-      },
-    );
+    // Build a ~50 km bounding box centred on the user's position.
+    // Nominatim viewbox format: lon_left,lat_top,lon_right,lat_bottom (NW→SE).
+    const double viewboxDeg = 0.45; // ≈ 50 km at typical US latitudes
+    final Map<String, String> params = <String, String>{
+      'q': query,
+      'format': 'json',
+      'limit': '$nominatimMaxResults',
+      'addressdetails': '1',
+    };
+    if (userPosition != null) {
+      final double lat = userPosition.latitude;
+      final double lon = userPosition.longitude;
+      params['viewbox'] =
+          '${lon - viewboxDeg},${lat + viewboxDeg},${lon + viewboxDeg},${lat - viewboxDeg}';
+      params['bounded'] = '0'; // prefer inside box; allow outside as fallback
+    }
+
+    final Uri uri =
+        Uri.parse(nominatimSearchUrl).replace(queryParameters: params);
 
     try {
       final http.Response response = await http
