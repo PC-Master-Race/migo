@@ -24,3 +24,38 @@ final Provider<bool> wifiOnlyTileSyncProvider = Provider<bool>((Ref ref) {
 // TODO: [route preference providers] [deferred to Phase 2]
 // TODO: [privacy toggle providers (ALPR avoidance, location sharing)]
 // [deferred to Phases 2/5 with their features]
+
+// ---------------------------------------------------------------------------
+// Phase 5: Location sharing toggle
+// ---------------------------------------------------------------------------
+
+/// Hive key for the location-sharing preference.
+const String settingsKeyLocationSharing = 'location_sharing_enabled';
+
+/// Whether the user has opted in to sharing their live location with their
+/// family group. Defaults FALSE — sharing is strictly opt-in per PRODUCT_BRIEF.
+final StateNotifierProvider<LocationSharingNotifier, bool>
+    locationSharingEnabledProvider =
+    StateNotifierProvider<LocationSharingNotifier, bool>(
+  (_) => LocationSharingNotifier(),
+);
+
+class LocationSharingNotifier extends StateNotifier<bool> {
+  LocationSharingNotifier()
+      : super(
+          Hive.box<dynamic>(hiveBoxSettings)
+              .get(settingsKeyLocationSharing, defaultValue: false) as bool,
+        );
+
+  Future<void> toggle() async {
+    state = !state;
+    await Hive.box<dynamic>(hiveBoxSettings)
+        .put(settingsKeyLocationSharing, state);
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    await Hive.box<dynamic>(hiveBoxSettings)
+        .put(settingsKeyLocationSharing, value);
+  }
+}

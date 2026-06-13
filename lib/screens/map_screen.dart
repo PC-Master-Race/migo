@@ -25,9 +25,12 @@ import '../widgets/map_controls/recenter_button.dart';
 import 'route_options_screen.dart';
 import '../models/hazard_model.dart';
 import '../providers/hazard_provider.dart';
+import '../providers/family_provider.dart';
+import '../widgets/avatar/family_member_marker.dart';
 import '../widgets/hazard_icons/hazard_icon.dart';
 import '../widgets/hud/hazard_alert_banner.dart';
 import 'report_hazard_screen.dart';
+// BravosHudChip is in user_location_marker.dart (already imported above)
 
 // --- LOCAL CONSTANTS ---
 
@@ -250,6 +253,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               child: _RouteOptionsButton(context: context),
             ),
 
+          // Bravos balance chip — bottom-right above recenter button.
+          const Positioned(
+            bottom: 88,
+            right: 16,
+            child: BravosHudChip(),
+          ),
+
           // Recenter button (bottom-right, when not following).
           if (!_isFollowingUser)
             Positioned(
@@ -269,7 +279,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: const HazardAlertStack(),
           ),
 
-          // TODO: [family/anonymous avatar layer] [deferred to Phases 4–5]
+          // Phase 5: family member live-location layer.
+          _buildFamilyLayer(ref),
         ],
       ),
     );
@@ -357,6 +368,34 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         // User position marker.
         if (position != null) _buildUserMarkerLayer(position),
       ],
+    );
+  }
+
+
+  /// Builds the family member MarkerLayer from Supabase Realtime stream.
+  /// Only shows members who are actively sharing and have a non-expired ping.
+  Widget _buildFamilyLayer(WidgetRef ref) {
+    // Activate the publisher side-effect (no-op if sharing is off).
+    ref.watch(locationPublisherProvider);
+
+    final List<FamilyLocation> locations =
+        ref.watch(familyLocationsProvider).valueOrNull ?? <FamilyLocation>[];
+    final Map<String, FamilyMember> memberMap =
+        ref.watch(familyMemberMapProvider);
+
+    if (locations.isEmpty) return const SizedBox.shrink();
+
+    return MarkerLayer(
+      markers: locations.map((FamilyLocation loc) {
+        final FamilyMember? member = memberMap[loc.userId];
+        if (member == null) return null;
+        return Marker(
+          point: LatLng(loc.latitude, loc.longitude),
+          width: 64,
+          height: 80,
+          child: FamilyMemberMarker(member: member, location: loc),
+        );
+      }).whereType<Marker>().toList(),
     );
   }
 
@@ -751,14 +790,4 @@ class _ReportHazardButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton.small(
-      heroTag: 'reportHazard',
-      backgroundColor: migoCoral,
-      foregroundColor: Colors.white,
-      elevation: 4,
-      tooltip: 'Report hazard',
-      onPressed: () => ReportHazardSheet.show(context),
-      child: const Icon(Icons.add_alert_rounded),
-    );
-  }
-}
-
+  

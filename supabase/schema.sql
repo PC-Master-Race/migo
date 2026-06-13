@@ -618,3 +618,137 @@ $$;
 
 revoke all on function public.increment_bravos(uuid, int) from public;
 grant execute on function public.increment_bravos(uuid, int) to authenticated;
+
+-- ============================================================
+-- PHASE 5: Family Groups and Live Location Sharing
+--
+-- PRIVACY: family_locations rows expire after 10 minutes.
+-- RLS ensures only members of the same group_id can read
+-- each other's location. No external service receives any
+-- location data — Supabase only.
+-- ============================================================
+
+-- TABLE: family_groups
+create table if not exists public.family_groups (
+  id          uuid primary key default uuid_generate_v4(),
+  -- Human-readable group name chosen by the creator (e.g. "The Garcias").
+  name        text not null,
+  -- 6-char alphanumeric invite code. Never logged, never pushed.
+  invite_code text not null unique,
+  created_by  uuid not null references public.users(id) on delete cascade,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.family_groups enable row level security;
+
+-- Only members of the group can read it.
+create policy "family_groups: members only"
+  on public.family_groups
+  for select
+  using (
+    exists (
+      select 1 from public.family_memberships fm
+      where fm.group_id = id and fm.user_id = auth.uid()
+    )
+  );
+
+-- Any authenticated user can create a group.
+create policy "family_groups: authenticated insert"
+  on public.family_groups
+  for insert
+  with check (auth.uid() = created_by);
+
+-- Only the creator can update (e.g. regenerate invite code).
+create policy "family_groups: creator update"
+  on public.family_groups
+  for update
+  using (auth.uid() = created_by);
+
+-- Creator can delete (triggers cascade on memberships + locations).
+create policy "family_groups: creator delete"
+  on public.family_groups
+  for delete
+  using (auth.uid() = created_by);
+
+-- TABLE: family_memberships
+create table if not exists public.family_memberships (
+  group_id  uuid not null references public.family_groups(id) on delete cascade,
+  user_id   uuid not null references public.users(id) on delete cascade,
+  joined_at timestamptz not null default now(),
+  primary key (group_id, user_id)
+);
+
+alter table public.family_memberships enable row level security;
+
+-- Members can read the membership list of their own group.
+create policy "family_memberships: group members only"
+  on public.family_memberships
+  for select
+  using (
+    exists (
+      select 1 from public.family_memberships fm2
+      where fm2.group_id = group_id and fm2.user_id = auth.uid()
+    )
+  );
+
+-- Authenticated users can join (insert themselves).
+create policy "family_memberships: self insert"
+  on public.family_memberships
+  for insert
+  with check (auth.uid() = user_id);
+
+-- Users can only delete their own membership (leave group).
+create policy "family_memberships: self delete"
+  on public.family_memberships
+  for delete
+  using (auth.uid() = user_id);
+
+-- TABLE: family_locations
+-- Live GPS pings. expires_at enforces the 10-minute TTL.
+-- A pg_cron job (or Edge Function) should prune expired rows periodically.
+create table if not exists public.family_locations (
+  user_id    uuid not null references public.users(id) on delete cascade,
+  group_id   uuid not null references public.family_groups(id) on delete cascade,
+  latitude   double precision not null,
+  longitude  double precision not null,
+  -- Speed in m/s from GPS — used for "driving vs parked" display.
+  speed_mps  double precision not null default 0,
+  updated_at timestamptz not null default now(),
+  -- Row expires after 10 minutes. Prevents stale pings lingering on map.
+  expires_at timestamptz not null,
+  primary key (user_id, group_id)
+);
+
+alter table public.family_locations enable row level security;
+
+-- Only members of the same group can read each other's location.
+create policy "family_locations: group members only"
+  on public.family_locations
+  for select
+  using (
+    exists (
+      select 1 from public.family_memberships fm
+      where fm.group_id = group_id and fm.user_id = auth.uid()
+    )
+  );
+
+-- Users can only upsert their own location row.
+create policy "family_locations: own row upsert"
+  on public.family_locations
+  for insert
+  with check (auth.uid() = user_id);
+
+create policy "family_locations: own row update"
+  on public.family_locations
+  for update
+  using (auth.uid() = user_id);
+
+-- Users can delete their own location (when they stop sharing).
+create policy "family_locations: own row delete"
+  on public.family_locations
+  for delete
+  using (auth.uid() = user_id);
+
+-- Index for fast group-based queries (the Realtime stream filters by group_id).
+create index if not exists idx_family_locations_group
+  on public.family_locations (group_id, expires_at);
