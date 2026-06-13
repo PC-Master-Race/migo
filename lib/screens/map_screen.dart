@@ -311,6 +311,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   @override
   Widget build(BuildContext context) {
     final MapZoomMode zoomMode = ref.watch(zoomModeProvider);
+    final MapZoomMode defaultMode = ref.watch(defaultZoomModeProvider);
     final Position? position = ref.watch(positionStreamProvider).valueOrNull;
     final BravoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
     final NavigationState? navState = ref.watch(navigationStateProvider);
@@ -481,7 +482,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       options: MapOptions(
         initialCenter:
             const LatLng(fallbackCenterLatitude, fallbackCenterLongitude),
-        initialZoom: mapDefaultZoom,
+        initialZoom: MapService.startingZoomForMode(defaultMode),
         minZoom: mapMinZoom,
         maxZoom: mapMaxZoom,
         onMapEvent: _handleMapEvent,

@@ -81,6 +81,18 @@ class MapService {
         : osmTileUrlTemplate;
   }
 
+  /// Returns the starting zoom level that best represents [mode].
+  /// Used by map_screen to honour the user's "default zoom mode" preference
+  /// from settings — the map opens at this zoom so the chosen style is visible
+  /// immediately, and auto-switches as the user zooms in/out from there.
+  static double startingZoomForMode(MapZoomMode mode) {
+    return switch (mode) {
+      MapZoomMode.cartoon => 12.0,  // neighbourhood overview
+      MapZoomMode.hybrid  => 15.0,  // block-level (current default)
+      MapZoomMode.street  => 17.0,  // building-level, satellite imagery
+    };
+  }
+
   /// Whether avatar cars should be visible in [mode].
   /// Street level hides them per PRODUCT_BRIEF (POI icons take over).
   static bool avatarsVisibleInMode(MapZoomMode mode) =>
