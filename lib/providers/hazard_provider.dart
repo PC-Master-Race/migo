@@ -15,6 +15,15 @@ import '../services/hazard_sound_service.dart';
 import 'location_provider.dart';
 
 // ============================================================
+// LAYER VISIBILITY
+// ============================================================
+
+/// Whether the hazard pin layer is visible on the map.
+/// Defaults to true — hazards are an on-by-default safety feature.
+final StateProvider<bool> hazardLayerEnabledProvider =
+    StateProvider<bool>((_) => true);
+
+// ============================================================
 // NEARBY HAZARDS — periodic fetch
 // ============================================================
 

@@ -97,6 +97,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _isNavigating = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Rebuild whenever the search bar gains/loses focus so the saved-location
+    // chips appear immediately when the user taps the bar (before typing).
+    _searchFocus.addListener(() => setState(() {}));
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     _searchFocus.dispose();
@@ -382,6 +390,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: _SettingsButton(context: context),
           ),
 
+          // Layer toggle panel — stacked below settings, right side.
+          Positioned(
+            top: statusBarH + 56,
+            right: 16,
+            child: _buildLayerToggles(context),
+          ),
+
           // Hazard alert banners — below maneuver banner when navigating.
           Positioned(
             top: navState != null ? searchBottom + 96 : searchBottom + 8,
@@ -607,6 +622,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   Widget _buildHazardLayer(WidgetRef ref) {
+    if (!ref.watch(hazardLayerEnabledProvider)) return const SizedBox.shrink();
     final List<Hazard> hazards =
         ref.watch(nearbyHazardsProvider).valueOrNull ?? <Hazard>[];
     if (hazards.isEmpty) return const SizedBox.shrink();
@@ -823,6 +839,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           );
         },
       ),
+    );
+  }
+
+  // --- LAYER TOGGLES ---
+
+  /// Compact icon-button column for toggling map layers on/off.
+  /// Gas stations, hazards (community + ALPR).
+  Widget _buildLayerToggles(BuildContext context) {
+    final bool gasOn = ref.watch(gasLayerEnabledProvider);
+    final bool hazardsOn = ref.watch(hazardLayerEnabledProvider);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _LayerToggleButton(
+          icon: Icons.local_gas_station_rounded,
+          active: gasOn,
+          tooltip: gasOn ? 'Hide gas stations' : 'Show gas stations',
+          onTap: () => ref.read(gasLayerEnabledProvider.notifier).state = !gasOn,
+        ),
+        const SizedBox(height: 6),
+        _LayerToggleButton(
+          icon: Icons.warning_amber_rounded,
+          active: hazardsOn,
+          tooltip: hazardsOn ? 'Hide hazards' : 'Show hazards',
+          onTap: () =>
+              ref.read(hazardLayerEnabledProvider.notifier).state = !hazardsOn,
+        ),
+      ],
     );
   }
 
@@ -1090,14 +1135,14 @@ class _StepTile extends StatelessWidget {
         height: 40,
         decoration: BoxDecoration(
           color: isCurrent
-              ? migoCoral.withValues(alpha: 0.2)
+              ? migoAmber.withValues(alpha: 0.2)
               : Colors.white.withValues(alpha: isDone ? 0.04 : 0.08),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(
           _iconFor(step.type),
           color: isCurrent
-              ? migoCoral
+              ? migoAmber          // yellow — pops against the dark sheet
               : isDone
                   ? Colors.white24
                   : Colors.white60,
@@ -1500,6 +1545,55 @@ class _SaveLocationSheetState extends ConsumerState<_SaveLocationSheet> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// LAYER TOGGLE BUTTON
+// ============================================================
+
+/// Small circular icon button for toggling a map layer on/off.
+/// Active state uses the layer color; inactive is a semi-transparent dark pill.
+class _LayerToggleButton extends StatelessWidget {
+  const _LayerToggleButton({
+    required this.icon,
+    required this.active,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool active;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: active
+                ? migoAmber.withValues(alpha: 0.9)
+                : Colors.black.withValues(alpha: 0.45),
+            shape: BoxShape.circle,
+            boxShadow: const <BoxShadow>[
+              BoxShadow(blurRadius: 4, color: Colors.black26),
+            ],
+          ),
+          child: Icon(
+            icon,
+            size: 18,
+            color: active ? migoInk : Colors.white70,
+          ),
+        ),
       ),
     );
   }

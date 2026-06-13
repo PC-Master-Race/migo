@@ -32,7 +32,7 @@ class GasPriceService {
   /// Results are merged with latest community prices from Supabase.
   Future<List<GasStation>> fetchNearbyStations(
     LatLng center, {
-    double radiusMiles = 5.0,
+    double radiusMiles = 10.0,
   }) async {
     final String cacheKey = _cacheKey(center);
     if (_stationCache.containsKey(cacheKey)) {
