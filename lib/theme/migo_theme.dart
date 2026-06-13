@@ -70,7 +70,7 @@ ThemeData buildMigoTheme() {
     scaffoldBackgroundColor: migoCream,
     fontFamily: migoFontFamily,
     // Rounded shapes everywhere — part of the cartoon style guide.
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       color: Colors.white,
     ),

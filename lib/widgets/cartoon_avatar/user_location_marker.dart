@@ -4,12 +4,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../constants.dart';
 import '../../theme/migo_theme.dart';
-
-// --- LOCAL CONSTANTS ---
-
-/// Marker diameter in logical pixels — big enough to spot while driving.
-const double userMarkerSize = 26;
 
 // --- WIDGET ---
 
