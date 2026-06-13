@@ -3,7 +3,6 @@
 // Phase 2: destination search bar, route polyline, maneuver banner,
 //          off-route recalculation, route options bottom sheet.
 
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';

@@ -43,7 +43,7 @@ final StateProvider<RoutePreferences> routePreferencesProvider =
 ///
 /// Screens call [RouteNotifier.calculate] to kick off a new route request;
 /// the provider automatically recalculates when preferences change while a
-/// destination is set (see [_prefAutoRecalcProvider]).
+/// destination is set (see [prefAutoRecalcProvider]).
 final StateNotifierProvider<RouteNotifier, AsyncValue<MigoRoute?>>
     activeRouteProvider =
     StateNotifierProvider<RouteNotifier, AsyncValue<MigoRoute?>>(
