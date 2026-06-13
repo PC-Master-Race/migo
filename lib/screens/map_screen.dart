@@ -89,6 +89,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// Resets after 10 s so future off-route events can still trigger one.
   bool _recalcQueued = false;
 
+  /// Tracks active-navigation state so we can zoom in/out on transition.
+  bool _isNavigating = false;
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -236,6 +239,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       });
     }
 
+    // Auto-zoom when navigation starts/ends so the street level is always
+    // readable without a perspective tilt. 18 = individual buildings visible.
+    final bool nowNavigating = navState != null;
+    if (nowNavigating && !_isNavigating) {
+      _isNavigating = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _mapController.move(_mapController.camera.center, 18.0);
+        }
+      });
+    } else if (!nowNavigating && _isNavigating) {
+      _isNavigating = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _mapController.move(_mapController.camera.center, mapFirstFixZoom);
+        }
+      });
+    }
+
     // Layout helpers — all vertical positions derive from status bar height
     // so the UI lands in the right place on every screen size.
     final double statusBarH = MediaQuery.of(context).padding.top;
@@ -336,15 +358,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     BravoRoute? route,
     NavigationState? navState,
   ) {
-    final Widget map = _buildMap(zoomMode, position, route);
-    if (navState == null) return map;
-    return Transform(
-      alignment: Alignment.bottomCenter,
-      transform: Matrix4.identity()
-        ..setEntry(3, 2, mapTiltPerspective)
-        ..rotateX(-mapTiltRadians),
-      child: map,
-    );
+    // Perspective tilt removed — the Transform caused the map to only occupy
+    // ~1/3 of the screen. Navigation now uses a flat map auto-zoomed to 18.
+    return _buildMap(zoomMode, position, route);
   }
 
   Widget _buildMap(
@@ -1242,27 +1258,4 @@ class _ReportHazardButton extends StatelessWidget {
 
 // ============================================================
 // SETTINGS BUTTON
-// ============================================================
-
-class _SettingsButton extends StatelessWidget {
-  const _SettingsButton({required this.context});
-  final BuildContext context;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.45),
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () =>
-            Navigator.of(context).pushNamed(SettingsScreen.routeName),
-        child: const Padding(
-          padding: EdgeInsets.all(8),
-          child: Icon(Icons.settings_rounded, color: Colors.white, size: 20),
-        ),
-      ),
-    );
-  }
-}
-                                            
+// ===================================

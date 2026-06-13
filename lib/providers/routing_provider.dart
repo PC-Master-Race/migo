@@ -273,8 +273,8 @@ final StateProvider<String> geocodeQueryProvider =
 /// Geocoding results for the current [geocodeQueryProvider] value.
 /// Auto-fires whenever the query changes. Returns empty list while loading
 /// or on error — never throws.
+///
+/// The user's GPS position is passed to [GeocodingService.search] so
+/// Nominatim receives a ~50 km viewbox and returns nearby results first.
 final FutureProvider<List<GeocodingResult>> geocodeResultsProvider =
-    FutureProvider<List<GeocodingResult>>((Ref ref) async {
-  final String query = ref.watch(geocodeQueryProvider);
-  if (query.trim().length < 2) return <GeocodingResult>[];
-  // Small debounce: wait 400
+    FutureProvider<List<GeocodingResult>>((Ref ref) asyn
