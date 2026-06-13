@@ -421,3 +421,85 @@ create table public.achievements (
   -- Human-readable title shown in the UI.
   title         text not null,
   -- Description shown after unlock. NULL for secret achievem
+-- ============================================================
+-- RPC: increment_hazard_confirmed
+-- Called after a user casts a "still there" vote.
+-- Increments confirmed_votes. If it crosses the community
+-- threshold (3) the hazard is automatically marked confirmed.
+--
+-- Security: runs as SECURITY DEFINER so the RLS policy on
+-- hazards (only owner can update) doesn't block the counter
+-- increment. The function validates the caller is authenticated
+-- and that the hazard exists before touching anything.
+-- ============================================================
+create or replace function public.increment_hazard_confirmed(hazard_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_threshold constant int := 3;
+begin
+  -- Only authenticated callers may invoke this.
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  update public.hazards
+  set
+    confirmed_votes        = confirmed_votes + 1,
+    -- Auto-confirm once threshold is reached.
+    is_community_confirmed = (confirmed_votes + 1) >= v_threshold
+  where id = hazard_id;
+
+  if not found then
+    raise exception 'Hazard not found: %', hazard_id;
+  end if;
+end;
+$$;
+
+-- Only authenticated users can call this function.
+revoke all on function public.increment_hazard_confirmed(uuid) from public;
+grant execute on function public.increment_hazard_confirmed(uuid) to authenticated;
+
+-- ============================================================
+-- RPC: increment_hazard_dismissed
+-- Called after a user casts a "gone / false alarm" vote.
+-- Increments dismissed_votes. If dismissed votes dominate
+-- (>= threshold) the hazard is soft-deleted (expires now).
+--
+-- Same SECURITY DEFINER rationale as above.
+-- ============================================================
+create or replace function public.increment_hazard_dismissed(hazard_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_threshold constant int := 3;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  update public.hazards
+  set
+    dismissed_votes = dismissed_votes + 1,
+    -- If enough people say it's gone, expire it immediately.
+    expires_at      = case
+                        when (dismissed_votes + 1) >= v_threshold
+                        then now()
+                        else expires_at
+                      end
+  where id = hazard_id;
+
+  if not found then
+    raise exception 'Hazard not found: %', hazard_id;
+  end if;
+end;
+$$;
+
+revoke all on function public.increment_hazard_dismissed(uuid) from public;
+grant execute on function public.increment_hazard_dismissed(uuid) to a
