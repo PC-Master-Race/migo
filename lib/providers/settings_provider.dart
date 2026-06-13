@@ -164,7 +164,7 @@ class DefaultZoomModeNotifier extends StateNotifier<MapZoomMode> {
       : super(_parseZoomMode(_box.get(settingsKeyDefaultZoomMode, defaultValue: 'follow') as String));
 
   static MapZoomMode _parseZoomMode(String raw) =>
-      MapZoomMode.values.firstWhere((MapZoomMode m) => m.name == raw, orElse: () => MapZoomMode.follow);
+      MapZoomMode.values.firstWhere((MapZoomMode m) => m.name == raw, orElse: () => MapZoomMode.cartoon);
 
   Future<void> set(MapZoomMode mode) async {
     state = mode;

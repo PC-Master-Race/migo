@@ -950,4 +950,10 @@ class _SettingsButton extends StatelessWidget {
         onTap: () => Navigator.of(context).pushNamed(SettingsScreen.routeName),
         child: const Padding(
           padding: EdgeInsets.all(8),
-          child: Icon(Icons.set
+          child: Icon(Icons.settings_rounded,
+              color: Colors.white, size: 20),
+        ),
+      ),
+    );
+  }
+}

@@ -111,7 +111,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               iconColor: migoAmber,
               title: 'ALPR camera avoidance',
               subtitle: 'Reroutes around known licence-plate reader locations.',
-              provider: alprAvoidanceEnabledProvider,
+              value: ref.watch(alprAvoidanceEnabledProvider),
+              onToggle: () => ref.read(alprAvoidanceEnabledProvider.notifier).toggle(),
             ),
             _dividerLine,
             _ToggleTile(
@@ -119,7 +120,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               iconColor: migoTeal,
               title: 'Share location with family',
               subtitle: 'Visible only to your family group. Stored in your Supabase account.',
-              provider: locationSharingEnabledProvider,
+              value: ref.watch(locationSharingEnabledProvider),
+              onToggle: () => ref.read(locationSharingEnabledProvider.notifier).toggle(),
             ),
           ]),
           const SizedBox(height: 20),
@@ -130,7 +132,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               iconColor: migoTeal,
               title: 'Voice guidance',
               subtitle: 'Turn-by-turn spoken directions.',
-              provider: ttsEnabledProvider,
+              value: ref.watch(ttsEnabledProvider),
+              onToggle: () => ref.read(ttsEnabledProvider.notifier).toggle(),
             ),
             _dividerLine,
             _ToggleTile(
@@ -138,7 +141,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               iconColor: migoAmber,
               title: 'Hazard alerts',
               subtitle: 'Audio + visual alerts for reported hazards ahead.',
-              provider: hazardAlertsEnabledProvider,
+              value: ref.watch(hazardAlertsEnabledProvider),
+              onToggle: () => ref.read(hazardAlertsEnabledProvider.notifier).toggle(),
             ),
             _dividerLine,
             Padding(
@@ -179,7 +183,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               iconColor: migoTeal,
               title: 'WiFi-only tile sync',
               subtitle: 'Downloads map tiles only on WiFi to save mobile data.',
-              provider: wifiOnlyTileSyncProvider,
+              value: ref.watch(wifiOnlyTileSyncProvider),
+              onToggle: () => ref.read(wifiOnlyTileSyncProvider.notifier).toggle(),
             ),
           ]),
           const SizedBox(height: 20),
@@ -190,7 +195,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               iconColor: migoAmber,
               title: 'Show gas stations',
               subtitle: 'Community-reported prices near your route.',
-              provider: gasLayerEnabledProvider,
+              value: ref.watch(gasLayerEnabledProvider),
+              onToggle: () => ref.read(gasLayerEnabledProvider.notifier).state = !ref.read(gasLayerEnabledProvider),
             ),
           ]),
           const SizedBox(height: 20),
@@ -234,23 +240,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 // Reusable tiles
 // ---------------------------------------------------------------------------
 
-class _ToggleTile extends ConsumerWidget {
+class _ToggleTile extends StatelessWidget {
   const _ToggleTile({
     required this.icon,
     required this.iconColor,
     required this.title,
     required this.subtitle,
-    required this.provider,
+    required this.value,
+    required this.onToggle,
   });
   final IconData icon;
   final Color iconColor;
   final String title;
   final String subtitle;
-  final StateNotifierProvider<ToggleNotifier, bool> provider;
+  final bool value;
+  final VoidCallback onToggle;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final bool value = ref.watch(provider);
+  Widget build(BuildContext context) {
     return ListTile(
       leading: Container(
         width: 36, height: 36,
@@ -262,7 +269,7 @@ class _ToggleTile extends ConsumerWidget {
           style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12, height: 1.4)),
       trailing: Switch(
         value: value,
-        onChanged: (_) => ref.read(provider.notifier).toggle(),
+        onChanged: (_) => onToggle(),
         activeColor: migoCoral,
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
