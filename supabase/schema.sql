@@ -260,18 +260,10 @@ create table public.family_groups (
 
 alter table public.family_groups enable row level security;
 
--- Members can read their group's metadata (needed to render the family map).
-create policy "family_groups: members read"
-  on public.family_groups
-  for select
-  using (
-    auth.uid() = owner_id or
-    exists (
-      select 1 from public.family_members fm
-      where fm.group_id = id and fm.user_id = auth.uid()
-    )
-  );
-
+-- Only the owner-manages policy is created here. The "members read" policy
+-- references public.family_members (created below) and must come AFTER that
+-- table exists — Postgres validates table references in policies at creation
+-- time, not query time. See "family_groups: members read" after family_members.
 create policy "family_groups: owner manages"
   on public.family_groups
   for all
@@ -315,6 +307,20 @@ create policy "family_members: own row manage"
   for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- Now that family_members exists, add the family_groups read policy that
+-- cross-references it. Placed here so the file runs clean top-to-bottom.
+-- Members can read their group's metadata (needed to render the family map).
+create policy "family_groups: members read"
+  on public.family_groups
+  for select
+  using (
+    auth.uid() = owner_id or
+    exists (
+      select 1 from public.family_members fm
+      where fm.group_id = id and fm.user_id = auth.uid()
+    )
+  );
 
 -- ============================================================
 -- TABLE: gas_prices
@@ -417,16 +423,4 @@ create policy "achievements: own only"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- ============================================================
--- INDEXES
--- Cover the most common query patterns to keep the app fast.
--- ============================================================
-
--- Hazard map queries: spatial bounding box by lat/lon.
-create index idx_hazards_location
-  on public.hazards (latitude, longitude)
-  where is_community_confirmed = true;
-
--- ALPR map queries: same pattern.
-create index idx_alpr_locations_location
-  on public.alpr_locations 
+-- ============
