@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<!-- index.html — Migo portfolio landing page, served via GitHub Pages.
+     Static, no trackers, no analytics: the landing page honors the same
+     privacy rules as the app. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Migo — Navigation that minds its own business</title>
+  <style>
+    /* Warm cartoon palette mirrored from lib/theme/migo_theme.dart */
+    :root {
+      --coral: #FF6B5E;
+      --amber: #FFB347;
+      --teal: #4ECDC4;
+      --cream: #FFF6E9;
+      --ink: #4A3F35;
+    }
+    body {
+      margin: 0;
+      font-family: "Nunito", system-ui, sans-serif;
+      background: var(--cream);
+      color: var(--ink);
+      text-align: center;
+    }
+    header { background: var(--coral); color: white; padding: 4rem 1rem; }
+    h1 { font-size: 3rem; margin: 0; }
+    .tagline { font-size: 1.25rem; }
+    section { max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    .pill { display: inline-block; background: var(--teal); color: white;
+            border-radius: 999px; padding: .35rem 1rem; margin: .25rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Migo</h1>
+    <p class="tagline">Privacy-first navigation with personality.</p>
+  </header>
+  <section>
+    <p>Offline OpenStreetMap navigation, ALPR avoidance, and cartoon driving
+       archetypes that evolve with how you actually drive.</p>
+    <span class="pill">No data sold. Ever.</span>
+    <span class="pill">No insurance sharing.</span>
+    <span class="pill">No Google backend.</span>
+    <!-- TODO: [screenshots, feature tour, download links] [deferred: app
+         visuals don't exist until Phases 4-7] -->
+  </section>
+</body>
+</html>

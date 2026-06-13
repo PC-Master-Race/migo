@@ -1,0 +1,16 @@
+# analysis_options.yaml — Dart analyzer configuration for Migo.
+# Enforces the code quality standards from PRODUCT_BRIEF.md at the linter level
+# wherever a lint rule exists for them.
+
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # Descriptive naming and readability rules (PRODUCT_BRIEF hard requirements)
+    - camel_case_types
+    - non_constant_identifier_names
+    - constant_identifier_names
+    - prefer_final_locals
+    - require_trailing_commas
+    # Documentation pressure: public APIs should be commented
+    - public_member_api_docs
