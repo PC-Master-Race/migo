@@ -1,6 +1,6 @@
-// main.dart — Migo app entry point.
+// main.dart — Bravo Maps app entry point.
 // Boots local storage and Supabase, installs the Riverpod scope, applies the
-// Migo theme, and defines top-level navigation routes.
+// Bravo Maps theme, and defines top-level navigation routes.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -62,11 +62,16 @@ class BravoMapsApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       initialRoute: SplashScreen.routeName,
       routes: <String, WidgetBuilder>{
-        SplashScreen.routeName: (_) => const SplashScreen(),
-        OnboardingScreen.routeName: (_) => const OnboardingScreen(),
-        MapScreen.routeName: (_) => const MapScreen(),
-        SettingsScreen.routeName: (_) => const SettingsScreen(),
+        SplashScreen.routeName:       (_) => const SplashScreen(),
+        OnboardingScreen.routeName:   (_) => const OnboardingScreen(),
+        MapScreen.routeName:          (_) => const MapScreen(),
+        SettingsScreen.routeName:     (_) => const SettingsScreen(),
+        FamilyScreen.routeName:       (_) => const FamilyScreen(),
         // RouteOptionsScreen is normally opened as a bottom sheet from
         // map_screen (RouteOptionsScreen.showSheet), but a named route
         // is registered here for deep-link / testing access.
-        RouteOptionsScreen.routeName: (_) => const RouteOp
+        RouteOptionsScreen.routeName: (_) => const RouteOptionsScreen(),
+      },
+    );
+  }
+}
