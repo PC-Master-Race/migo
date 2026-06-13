@@ -211,3 +211,34 @@ const String hiveKeyTtsEnabled = 'tts_enabled';
 /// Default ElevenLabs voice ID — "Rachel" (warm, clear, calm). Users can
 /// override this in settings once Phase 2 settings screen is built.
 const String elevenLabsDefaultVoiceId = '21m00Tcm4TlvDq8ikWAM';
+
+// --- PHASE 3: HAZARDS ---
+
+/// Radius (miles) within which an incoming hazard triggers an alert banner
+/// and sound. 2 miles per PRODUCT_BRIEF Phase 3 spec.
+const double hazardFetchRadiusMiles = 10.0;
+
+/// How long (seconds) a hazard alert banner stays visible before auto-
+/// dismissing. Never requires a user tap — PRODUCT_BRIEF: no taps while driving.
+const int hazardAlertAutoDismissSeconds = 8;
+
+/// Minimum time (minutes) before the same hazard can trigger another alert.
+/// Prevents the same camera/crash from spamming the banner on repeat passes.
+const int hazardReAlertCooldownMinutes = 10;
+
+/// Minimum "still there" votes before a hazard is shown to all users.
+/// Kept low (3) so the community can confirm quickly while filtering noise.
+const int hazardConfirmationVoteThreshold = 3;
+
+/// How many minutes before Migo asks nearby users "Is this still there?"
+const int hazardExpiryPromptMinutes = 60;
+
+/// Fetch radius (meters) used when querying Overpass for OSM-tagged ALPR
+/// cameras around the user's current position.
+const int alprOverpassRadiusMeters = 16000; // ~10 miles
+
+/// Supabase table names — centralized so a rename can't silently break queries.
+const String tableHazards = 'hazards';
+const String tableHazardVotes = 'hazard_votes';
+const String tableAlprLocations = 'alpr_locations';
+const String tableAlprVotes = 'alpr_votes';

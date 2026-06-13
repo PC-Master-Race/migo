@@ -17,11 +17,17 @@ import '../providers/map_provider.dart';
 import '../providers/routing_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/map_service.dart';
+import '../services/supabase_service.dart';
 import '../theme/migo_theme.dart';
 import '../widgets/cartoon_avatar/user_location_marker.dart';
 import '../widgets/hud/speed_hud.dart';
 import '../widgets/map_controls/recenter_button.dart';
 import 'route_options_screen.dart';
+import '../models/hazard_model.dart';
+import '../providers/hazard_provider.dart';
+import '../widgets/hazard_icons/hazard_icon.dart';
+import '../widgets/hud/hazard_alert_banner.dart';
+import 'report_hazard_screen.dart';
 
 // --- LOCAL CONSTANTS ---
 
@@ -229,10 +235,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: SpeedHud(),
           ),
 
-          // Route options button (bottom-left, only when navigating).
+          // Report hazard FAB — always visible (bottom-left stack).
+          Positioned(
+            bottom: 100,
+            left: 16,
+            child: _ReportHazardButton(context: context),
+          ),
+
+          // Route options button (above the report button when navigating).
           if (route != null)
             Positioned(
-              bottom: 100,
+              bottom: 160,
               left: 16,
               child: _RouteOptionsButton(context: context),
             ),
@@ -248,7 +261,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           // Search results dropdown.
           if (_showSearchResults) _buildSearchResultsOverlay(),
 
-          // TODO: [hazard markers layer] [deferred to Phase 3]
+          // Phase 3: hazard alert banner (above map, below search bar).
+          Positioned(
+            top: navState != null ? 160 : 86,
+            left: 0,
+            right: 0,
+            child: const HazardAlertStack(),
+          ),
+
           // TODO: [family/anonymous avatar layer] [deferred to Phases 4–5]
         ],
       ),
@@ -331,9 +351,36 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ],
           ),
 
+        // Phase 3: hazard pins layer.
+        _buildHazardLayer(ref),
+
         // User position marker.
         if (position != null) _buildUserMarkerLayer(position),
       ],
+    );
+  }
+
+  /// Builds the hazard pin MarkerLayer from [nearbyHazardsProvider].
+  /// Confirmed hazards are full-opacity; own pending pins are dimmed.
+  Widget _buildHazardLayer(WidgetRef ref) {
+    final List<Hazard> hazards =
+        ref.watch(nearbyHazardsProvider).valueOrNull ?? <Hazard>[];
+    if (hazards.isEmpty) return const SizedBox.shrink();
+
+    final String? myId = SupabaseService.isConnected
+        ? null // reporter_id not available client-side without extra query
+        : null;
+
+    return MarkerLayer(
+      markers: hazards.map((Hazard h) {
+        final bool isOwn = myId != null;
+        return Marker(
+          point: h.position,
+          width: hazardIconSize,
+          height: hazardIconSize,
+          child: HazardIcon(type: h.type, isOwn: !h.isCommunityConfirmed),
+        );
+      }).toList(),
     );
   }
 
@@ -693,6 +740,24 @@ class _RouteOptionsButton extends StatelessWidget {
       tooltip: 'Route options',
       onPressed: () => RouteOptionsScreen.showSheet(context),
       child: const Icon(Icons.tune_rounded),
+    );
+  }
+}
+
+class _ReportHazardButton extends StatelessWidget {
+  const _ReportHazardButton({required this.context});
+  final BuildContext context;
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton.small(
+      heroTag: 'reportHazard',
+      backgroundColor: migoCoral,
+      foregroundColor: Colors.white,
+      elevation: 4,
+      tooltip: 'Report hazard',
+      onPressed: () => ReportHazardSheet.show(context),
+      child: const Icon(Icons.add_alert_rounded),
     );
   }
 }
