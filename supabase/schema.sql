@@ -388,11 +388,24 @@ create policy "user_reports: insert own"
   for insert
   with check (auth.uid() = reporter_id);
 
--- Enforce one-report-per-pair-per-day using an expression index.
--- date_trunc('day', ...) truncates the timestamp to midnight UTC so all
--- reports within the same calendar day collapse to the same key.
+-- Enforce one-report-per-pair-per-day.
+--
+-- Why an IMMUTABLE wrapper function?
+-- Postgres requires index expression functions to be IMMUTABLE (same inputs
+-- always produce the same output). date_trunc(timestamptz) is only STABLE
+-- because the result depends on the session timezone setting. By pinning to
+-- 'UTC' inside an IMMUTABLE function we make the result genuinely constant
+-- for any given input value — UTC has no DST rules, so the conversion is
+-- deterministic.
+create or replace function public.migo_report_day(ts timestamptz)
+returns date
+language sql
+immutable
+returns null on null input
+as $$ select (ts at time zone 'UTC')::date $$;
+
 create unique index idx_user_reports_spam_guard
-  on public.user_reports (reporter_id, reported_id, date_trunc('day', reported_at));
+  on public.user_reports (reporter_id, reported_id, public.migo_report_day(reported_at));
 
 -- ============================================================
 -- TABLE: achievements
@@ -407,20 +420,4 @@ create table public.achievements (
   achievement_key text not null,
   -- Human-readable title shown in the UI.
   title         text not null,
-  -- Description shown after unlock. NULL for secret achievements until earned.
-  description   text,
-  -- Whether the unlock condition is hidden until earned.
-  is_secret     boolean not null default false,
-  unlocked_at   timestamptz not null default now(),
-  unique (user_id, achievement_key)
-);
-
-alter table public.achievements enable row level security;
-
-create policy "achievements: own only"
-  on public.achievements
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
--- ============
+  -- Description shown after unlock. NULL for secret achievem
