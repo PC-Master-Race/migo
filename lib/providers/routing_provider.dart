@@ -127,8 +127,9 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
 
 /// Side-effect provider: watches [routePreferencesProvider] and triggers
 /// [RouteNotifier.recalculate] whenever preferences change while a route is
-/// active. Using a Provider (not a StateProvider) means this watcher is
-/// always alive while the ProviderScope is alive.
+/// active. IMPORTANT: this is a side-effecting Provider — it only runs while
+/// something is watching it. map_screen.dart keeps it alive via ref.watch for
+/// the lifetime of the map. If nothing watches it, auto-recalc silently stops.
 final Provider<void> prefAutoRecalcProvider = Provider<void>((Ref ref) {
   // Watch ONLY preferences. Do NOT watch activeRouteProvider here — that
   // creates an infinite recalculation loop:

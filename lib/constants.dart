@@ -62,15 +62,6 @@ const double mapDefaultZoom = 15.0;
 /// matches the close street-level view Waze opens to when location is acquired.
 const double mapFirstFixZoom = 17.0;
 
-/// Perspective divisor for the navigation-mode map tilt Transform.
-/// Higher value = more subtle perspective shrink toward the horizon.
-const double mapTiltPerspective = 0.0012;
-
-/// Tilt angle (radians) applied to the map in active navigation mode.
-/// 0.8 rad ≈ 46° — enough to give a Waze-style driving perspective without
-/// the top of the map becoming unreadably small.
-const double mapTiltRadians = 0.8;
-
 /// Fallback map center before the first GPS fix: geographic center of the
 /// contiguous US. Replaced by the real position the moment GPS reports in.
 const double fallbackCenterLatitude = 39.8283;
@@ -133,6 +124,61 @@ const int chiliPepperVoteThreshold = 100;
 
 /// Bad-driver reports required before the Menace badge appears.
 const int menaceBadgeReportThreshold = 100;
+
+// --- DRIVING SESSION TRACKER (Phase 4 archetype loop) ---
+// Motion-based trip detection + thresholds for the GPS-derived metrics the
+// archetype engine consumes. All values are tunable; documented reasoning per
+// PRODUCT_BRIEF's "no magic numbers" rule.
+
+/// Speed (m/s) at or above which the user counts as "driving" — starts a trip.
+/// 3.0 m/s ≈ 6.7 mph: comfortably above brisk walking so parking-lot creep and
+/// pedestrians never start a phantom trip.
+const double tripStartSpeedMps = 3.0;
+
+/// Speed (m/s) below which the user counts as stopped for trip-end purposes.
+/// 0.8 m/s ≈ 1.8 mph — essentially stationary; GPS jitter sits under this.
+const double tripStopSpeedMps = 0.8;
+
+/// Seconds the user must stay below [tripStopSpeedMps] before a trip is
+/// considered finished. 180 s = 3 min: ignores red lights and quick stops,
+/// but closes the trip once the car is actually parked.
+const int tripStopGraceSeconds = 180;
+
+/// Minimum finished-trip distance (meters) before it counts toward the
+/// archetype. 400 m filters out shuffling the car a few spaces in a lot.
+const double tripMinDistanceMeters = 400.0;
+
+/// Deceleration (m/s² over one GPS interval) that counts as a "hard brake".
+/// 3.5 m/s² ≈ 0.36 g — firm braking, not a gentle coast-down.
+const double hardBrakeMps2 = 3.5;
+
+/// Acceleration (m/s²) that counts as a "hard acceleration".
+/// 3.0 m/s² ≈ 0.31 g — a noticeably aggressive launch.
+const double hardAccelMps2 = 3.0;
+
+/// Speed (m/s) at or above which moving time is attributed to "highway".
+/// 24 m/s ≈ 54 mph. A speed proxy for road class — a precise version would
+/// classify each GPS point's OSM road type, which is too network-heavy on
+/// device. See DrivingSessionTracker docs.
+const double highwaySpeedMps = 24.0;
+
+/// Speed (m/s) at or below which moving time is attributed to "back roads".
+/// 11 m/s ≈ 25 mph — residential/surface-street pace. Same proxy caveat.
+const double backRoadSpeedMps = 11.0;
+
+/// Ignore GPS gaps longer than this (seconds) when integrating distance/time —
+/// a long gap means signal loss, not real travel, and would corrupt the math.
+const int maxGpsGapSeconds = 30;
+
+/// Hour (24h, inclusive) at/after which driving counts as "night".
+const int nightStartHour = 22;
+
+/// Hour (24h, exclusive) before which driving still counts as "night".
+const int nightEndHour = 5;
+
+/// Hard-brake+accel count that maps to a full 1.0 aggression score for the
+/// driving_sessions row. 10 combined hard events in one trip = maxed out.
+const double aggressionEventsForMax = 10.0;
 
 // --- HIVE BOX NAMES ---
 // Box names are centralized so a typo can't silently create a second box.

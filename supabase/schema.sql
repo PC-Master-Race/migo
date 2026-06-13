@@ -1,16 +1,22 @@
--- schema.sql — Full Migo database schema.
+-- schema.sql — Full Bravo Maps database schema.
 -- Deploy this in the Supabase SQL editor (Dashboard > SQL Editor > New query).
--- Every table uses Row Level Security (RLS) — no user can read another user's
--- data except through explicitly designed sharing features (family groups).
--- Every column has a comment explaining what it stores and why.
+-- Runs cleanly top-to-bottom: tables are ordered by foreign-key dependency,
+-- and any policy that references another table is created only after that
+-- table (and any helper function it needs) already exists.
+--
+-- Privacy posture (PRODUCT_BRIEF): every table uses Row Level Security. No user
+-- can read another user's data except through explicitly designed sharing
+-- features (family groups). Every column has a comment explaining what it
+-- stores and why. Table/column names here are the SINGLE SOURCE OF TRUTH and
+-- match what the Dart services query — do not rename without updating the app.
 
 -- Enable UUID generation (built into Supabase by default).
 create extension if not exists "uuid-ossp";
 
 -- ============================================================
 -- TABLE: users
--- Core user account and preferences. Created automatically on
--- first auth; updated through the settings screen.
+-- Core user account and preferences. Created on first auth;
+-- updated through the settings screen.
 -- ============================================================
 create table public.users (
   id                       uuid primary key references auth.users(id) on delete cascade,
@@ -44,20 +50,20 @@ create policy "users: own row only"
 -- color_hex paints the avatar the user's real car color.
 -- ============================================================
 create table public.vehicles (
-  id           uuid primary key default uuid_generate_v4(),
-  owner_id     uuid not null references public.users(id) on delete cascade,
+  id            uuid primary key default uuid_generate_v4(),
+  owner_id      uuid not null references public.users(id) on delete cascade,
   -- Manufacturer name, e.g. "Toyota". Free text from onboarding.
-  make         text not null,
+  make          text not null,
   -- Model name, e.g. "Corolla". Free text from onboarding.
-  model        text not null,
+  model         text not null,
   -- Model year, e.g. 2019.
-  year         integer not null check (year >= 1886 and year <= 2100),
+  year          integer not null check (year >= 1886 and year <= 2100),
   -- Real car color as hex string ("#FF6B5E"). Avatar is painted this color.
-  color_hex    text not null check (color_hex ~ '^#[0-9A-Fa-f]{6}$'),
+  color_hex     text not null check (color_hex ~ '^#[0-9A-Fa-f]{6}$'),
   -- Body class: sedan, suv, truck, sportsCar, van, motorcycle.
   -- Determines the avatar's base body shape (Phase 4).
   vehicle_class text not null default 'sedan',
-  created_at   timestamptz not null default now()
+  created_at    timestamptz not null default now()
 );
 
 alter table public.vehicles enable row level security;
@@ -69,27 +75,35 @@ create policy "vehicles: owner only"
   with check (auth.uid() = owner_id);
 
 -- ============================================================
--- TABLE: archetypes
--- The user's current driving personality, recalculated after
--- each session. Archetypes evolve and are never permanently locked.
+-- TABLE: archetype_profiles
+-- The user's current driving personality. One row per user,
+-- recalculated at the end of each driving session. Archetypes
+-- evolve and are never permanently locked. Column set matches
+-- ArchetypeProfile.toJson() in lib/models/archetype_model.dart.
 -- ============================================================
-create table public.archetypes (
-  id                uuid primary key default uuid_generate_v4(),
-  user_id           uuid not null unique references public.users(id) on delete cascade,
-  -- The archetype currently shown on the user's avatar (enum name string).
-  current_archetype text not null default 'responsibleEmployee',
-  -- JSON blob of per-archetype affinity scores 0.0–1.0.
-  -- Highest score wins the avatar; all scores kept so evolution is smooth.
+create table public.archetype_profiles (
+  user_id           uuid primary key references public.users(id) on delete cascade,
+  -- The archetype currently shown on the avatar (DrivingArchetype enum name,
+  -- e.g. 'zenMaster', 'phantom', 'rocket'). 'zenMaster' is the calm default.
+  current_archetype text not null default 'zenMaster',
+  -- JSON map of per-archetype EMA affinity scores 0.0–1.0. Highest wins the
+  -- avatar; all scores kept so evolution is smooth across sessions.
   scores            jsonb not null default '{}',
-  -- Earned overlay badges as a JSON array of badge name strings.
+  -- A rare/secret archetype name if unlocked (RareArchetype enum), else NULL.
+  rare_archetype    text,
+  -- Earned overlay badges as a JSON array of AvatarBadge enum names.
   badges            jsonb not null default '[]',
-  updated_at        timestamptz not null default now()
+  -- Total sessions completed (drives rare-unlock checks).
+  session_count     integer not null default 0,
+  -- Consecutive calendar days with at least one session (streak tracking).
+  consecutive_days  integer not null default 0,
+  updated_at        timestamptz default now()
 );
 
-alter table public.archetypes enable row level security;
+alter table public.archetype_profiles enable row level security;
 
-create policy "archetypes: owner only"
-  on public.archetypes
+create policy "archetype_profiles: own only"
+  on public.archetype_profiles
   for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
@@ -113,7 +127,6 @@ create table public.driving_sessions (
   -- Aggression score 0.0–1.0 derived from acceleration/braking GPS deltas.
   aggression_score      double precision check (aggression_score between 0 and 1),
   -- Time efficiency: ratio of actual travel time to estimated travel time.
-  -- >1.0 means arrived faster than estimated (good for Time Lord archetype).
   time_efficiency_ratio double precision,
   -- Number of ALPR cameras reported during this session.
   alpr_reports_count    integer not null default 0,
@@ -132,31 +145,31 @@ create policy "driving_sessions: owner only"
 
 -- ============================================================
 -- TABLE: hazards
--- User-reported map hazards with location and type.
--- Unconfirmed until community votes validate them.
+-- User-reported map hazards. Unconfirmed until community votes
+-- validate them. Only confirmed hazards are shown to all users.
 -- ============================================================
 create table public.hazards (
-  id                    uuid primary key default uuid_generate_v4(),
-  reporter_id           uuid not null references public.users(id) on delete cascade,
+  id                     uuid primary key default uuid_generate_v4(),
+  reporter_id            uuid not null references public.users(id) on delete cascade,
   -- Hazard type enum name (crash, alprCamera, debris, ice, construction,
   -- speedTrap, generalDisturbance). Maps to icon and alert sound.
-  hazard_type           text not null,
-  latitude              double precision not null,
-  longitude             double precision not null,
+  hazard_type            text not null,
+  latitude               double precision not null,
+  longitude              double precision not null,
   -- "Still there" votes from nearby users.
-  confirmed_votes       integer not null default 0,
+  confirmed_votes        integer not null default 0,
   -- "Gone now" votes from nearby users.
-  dismissed_votes       integer not null default 0,
+  dismissed_votes        integer not null default 0,
   -- True once community votes confirm it. Only confirmed hazards shown to all.
   is_community_confirmed boolean not null default false,
   -- When nearby users will be prompted "Is this still there?".
-  expires_at            timestamptz,
-  reported_at           timestamptz not null default now()
+  expires_at             timestamptz,
+  reported_at            timestamptz not null default now()
 );
 
 alter table public.hazards enable row level security;
 
--- Anyone can read confirmed hazards (they are public community data).
+-- Anyone can read confirmed hazards (public community data) or their own reports.
 create policy "hazards: read confirmed"
   on public.hazards
   for select
@@ -173,12 +186,12 @@ create policy "hazards: insert own"
 -- Upvotes/downvotes on hazard validity. One vote per user per hazard.
 -- ============================================================
 create table public.hazard_votes (
-  id         uuid primary key default uuid_generate_v4(),
-  hazard_id  uuid not null references public.hazards(id) on delete cascade,
-  voter_id   uuid not null references public.users(id) on delete cascade,
+  id          uuid primary key default uuid_generate_v4(),
+  hazard_id   uuid not null references public.hazards(id) on delete cascade,
+  voter_id    uuid not null references public.users(id) on delete cascade,
   -- TRUE = "still there" (confirm), FALSE = "gone now" (dismiss).
   still_there boolean not null,
-  voted_at   timestamptz not null default now(),
+  voted_at    timestamptz not null default now(),
   unique (hazard_id, voter_id)
 );
 
@@ -191,27 +204,104 @@ create policy "hazard_votes: own votes"
   with check (auth.uid() = voter_id);
 
 -- ============================================================
+-- RPC: increment_hazard_confirmed
+-- Called after a "still there" vote. Increments confirmed_votes;
+-- auto-confirms the hazard once the threshold (3) is reached.
+--
+-- SECURITY DEFINER so the owner-only UPDATE policy on hazards
+-- doesn't block the counter increment. Validates the caller is
+-- authenticated and the hazard exists before touching anything.
+-- ============================================================
+create or replace function public.increment_hazard_confirmed(hazard_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_threshold constant int := 3;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  update public.hazards
+  set
+    confirmed_votes        = confirmed_votes + 1,
+    is_community_confirmed = (confirmed_votes + 1) >= v_threshold
+  where id = hazard_id;
+
+  if not found then
+    raise exception 'Hazard not found: %', hazard_id;
+  end if;
+end;
+$$;
+
+revoke all on function public.increment_hazard_confirmed(uuid) from public;
+grant execute on function public.increment_hazard_confirmed(uuid) to authenticated;
+
+-- ============================================================
+-- RPC: increment_hazard_dismissed
+-- Called after a "gone / false alarm" vote. Increments
+-- dismissed_votes; once dismissals reach the threshold (3) the
+-- hazard is expired immediately (soft delete).
+--
+-- Same SECURITY DEFINER rationale as increment_hazard_confirmed.
+-- ============================================================
+create or replace function public.increment_hazard_dismissed(hazard_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_threshold constant int := 3;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  update public.hazards
+  set
+    dismissed_votes = dismissed_votes + 1,
+    -- If enough people say it's gone, expire it immediately.
+    expires_at      = case
+                        when (dismissed_votes + 1) >= v_threshold then now()
+                        else expires_at
+                      end
+  where id = hazard_id;
+
+  if not found then
+    raise exception 'Hazard not found: %', hazard_id;
+  end if;
+end;
+$$;
+
+revoke all on function public.increment_hazard_dismissed(uuid) from public;
+grant execute on function public.increment_hazard_dismissed(uuid) to authenticated;
+
+-- ============================================================
 -- TABLE: alpr_locations
 -- Known ALPR reader locations, community maintained.
 -- ALPR avoidance data is NEVER sent to any third party.
 -- ============================================================
 create table public.alpr_locations (
-  id            uuid primary key default uuid_generate_v4(),
-  reporter_id   uuid not null references public.users(id) on delete cascade,
-  latitude      double precision not null,
-  longitude     double precision not null,
-  -- Free-text description of the installation (e.g. "fixed gantry", "mobile van").
-  description   text,
+  id               uuid primary key default uuid_generate_v4(),
+  reporter_id      uuid not null references public.users(id) on delete cascade,
+  latitude         double precision not null,
+  longitude        double precision not null,
+  -- Free-text description of the installation ("fixed gantry", "mobile van").
+  description      text,
   -- Net community validation score. Positive = likely real, negative = likely wrong.
   validation_score integer not null default 0,
   -- True once validation_score crosses the confirmation threshold.
-  is_validated  boolean not null default false,
-  reported_at   timestamptz not null default now()
+  is_validated     boolean not null default false,
+  reported_at      timestamptz not null default now()
 );
 
 alter table public.alpr_locations enable row level security;
 
--- Validated ALPR locations are public community data (same as hazards).
+-- Validated ALPR locations are public community data (same model as hazards).
 create policy "alpr_locations: read validated"
   on public.alpr_locations
   for select
@@ -245,113 +335,190 @@ create policy "alpr_votes: own votes"
   with check (auth.uid() = voter_id);
 
 -- ============================================================
--- TABLE: family_groups
--- Invite-based groups for real-time family location sharing.
+-- FAMILY GROUPS & LIVE LOCATION SHARING (PRODUCT_BRIEF Phase 5)
+--
+-- PRIVACY: family_locations rows expire after 10 minutes. RLS
+-- ensures only members of the same group can read each other's
+-- data. No external service receives any location data.
+--
+-- ORDERING NOTE: the "members can read" policies need to test
+-- group membership, which is itself stored in family_memberships.
+-- A policy that subqueries its own table recursively triggers
+-- Postgres "infinite recursion detected in policy". To avoid that,
+-- membership is tested through the SECURITY DEFINER helper
+-- is_family_group_member() defined AFTER the tables, and the
+-- member-read policies are added after the helper exists.
 -- ============================================================
+
+-- TABLE: family_groups
 create table public.family_groups (
-  id           uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default uuid_generate_v4(),
+  -- Human-readable group name chosen by the creator (e.g. "The Garcias").
+  name        text not null,
+  -- Alphanumeric invite code used in invite links. Never logged, never pushed.
+  invite_code text not null unique,
   -- The user who created (and administers) this group.
-  owner_id     uuid not null references public.users(id) on delete cascade,
-  name         text not null,
-  -- Short alphanumeric code used in invite links (e.g. "MIGO-X7K2").
-  invite_code  text not null unique,
-  created_at   timestamptz not null default now()
+  created_by  uuid not null references public.users(id) on delete cascade,
+  created_at  timestamptz not null default now()
 );
 
 alter table public.family_groups enable row level security;
 
--- Only the owner-manages policy is created here. The "members read" policy
--- references public.family_members (created below) and must come AFTER that
--- table exists — Postgres validates table references in policies at creation
--- time, not query time. See "family_groups: members read" after family_members.
-create policy "family_groups: owner manages"
+-- Any authenticated user can create a group (as themselves).
+create policy "family_groups: authenticated insert"
   on public.family_groups
-  for all
-  using (auth.uid() = owner_id)
-  with check (auth.uid() = owner_id);
+  for insert
+  with check (auth.uid() = created_by);
 
--- ============================================================
--- TABLE: family_members
--- Members of a family group with per-member privacy settings.
--- ============================================================
-create table public.family_members (
-  id               uuid primary key default uuid_generate_v4(),
-  group_id         uuid not null references public.family_groups(id) on delete cascade,
-  user_id          uuid not null references public.users(id) on delete cascade,
-  -- The user's chosen display name within this group (may differ from global name).
-  nickname         text,
-  -- Whether this member is currently sharing their location with the group.
-  sharing_enabled  boolean not null default true,
-  -- JSON: { "start": "HH:MM", "end": "HH:MM" } defining the daily sharing window.
-  -- NULL means share always (when sharing_enabled is true).
-  privacy_window   jsonb,
-  joined_at        timestamptz not null default now(),
-  unique (group_id, user_id)
+-- Only the creator can update (e.g. regenerate the invite code).
+create policy "family_groups: creator update"
+  on public.family_groups
+  for update
+  using (auth.uid() = created_by);
+
+-- Creator can delete (cascades to memberships + locations).
+create policy "family_groups: creator delete"
+  on public.family_groups
+  for delete
+  using (auth.uid() = created_by);
+
+-- TABLE: family_memberships
+create table public.family_memberships (
+  group_id  uuid not null references public.family_groups(id) on delete cascade,
+  user_id   uuid not null references public.users(id) on delete cascade,
+  joined_at timestamptz not null default now(),
+  primary key (group_id, user_id)
 );
 
-alter table public.family_members enable row level security;
+alter table public.family_memberships enable row level security;
 
--- A member can see sibling members in the same group (to render their avatars).
-create policy "family_members: group siblings read"
-  on public.family_members
-  for select
-  using (
-    exists (
-      select 1 from public.family_members me
-      where me.group_id = group_id and me.user_id = auth.uid()
-    )
-  );
-
-create policy "family_members: own row manage"
-  on public.family_members
-  for all
-  using (auth.uid() = user_id)
+-- Authenticated users can join (insert themselves).
+create policy "family_memberships: self insert"
+  on public.family_memberships
+  for insert
   with check (auth.uid() = user_id);
 
--- Now that family_members exists, add the family_groups read policy that
--- cross-references it. Placed here so the file runs clean top-to-bottom.
--- Members can read their group's metadata (needed to render the family map).
+-- Users can only delete their own membership (leave group).
+create policy "family_memberships: self delete"
+  on public.family_memberships
+  for delete
+  using (auth.uid() = user_id);
+
+-- TABLE: family_locations
+-- Live GPS pings. expires_at enforces the 10-minute TTL. A pg_cron job
+-- or Edge Function should periodically prune expired rows.
+create table public.family_locations (
+  user_id    uuid not null references public.users(id) on delete cascade,
+  group_id   uuid not null references public.family_groups(id) on delete cascade,
+  latitude   double precision not null,
+  longitude  double precision not null,
+  -- Speed in m/s from GPS — used for "driving vs parked" display.
+  speed_mps  double precision not null default 0,
+  updated_at timestamptz not null default now(),
+  -- Row expires after 10 minutes. Prevents stale pings lingering on the map.
+  expires_at timestamptz not null,
+  primary key (user_id, group_id)
+);
+
+alter table public.family_locations enable row level security;
+
+-- Users can only upsert/update/delete their own location row.
+create policy "family_locations: own row insert"
+  on public.family_locations
+  for insert
+  with check (auth.uid() = user_id);
+
+create policy "family_locations: own row update"
+  on public.family_locations
+  for update
+  using (auth.uid() = user_id);
+
+create policy "family_locations: own row delete"
+  on public.family_locations
+  for delete
+  using (auth.uid() = user_id);
+
+-- Index for fast group-based queries (the Realtime stream filters by group_id).
+create index idx_family_locations_group
+  on public.family_locations (group_id, expires_at);
+
+-- HELPER: is_family_group_member
+-- Returns TRUE if the current auth user belongs to p_group_id.
+-- SECURITY DEFINER means the internal SELECT runs as the function owner and
+-- bypasses RLS on family_memberships — which is exactly what breaks the
+-- recursion that a plain subquery-in-policy would cause.
+create or replace function public.is_family_group_member(p_group_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.family_memberships
+    where group_id = p_group_id and user_id = auth.uid()
+  );
+$$;
+
+revoke all on function public.is_family_group_member(uuid) from public;
+grant execute on function public.is_family_group_member(uuid) to authenticated;
+
+-- Member-read policies (added now that the helper exists).
+-- Members can read their group's metadata (to render the family map).
 create policy "family_groups: members read"
   on public.family_groups
   for select
-  using (
-    auth.uid() = owner_id or
-    exists (
-      select 1 from public.family_members fm
-      where fm.group_id = id and fm.user_id = auth.uid()
-    )
-  );
+  using (auth.uid() = created_by or public.is_family_group_member(id));
+
+-- Members can read the membership list of their own group.
+create policy "family_memberships: members read"
+  on public.family_memberships
+  for select
+  using (public.is_family_group_member(group_id));
+
+-- Members can read each other's live location within a shared group.
+create policy "family_locations: members read"
+  on public.family_locations
+  for select
+  using (public.is_family_group_member(group_id));
 
 -- ============================================================
 -- TABLE: gas_prices
--- Community-reported gas prices by station (OSM node ID).
+-- Community-reported fuel prices per station and grade. No
+-- commercial feed; all data stays in Supabase. reporter_id is
+-- used only to award Bravos and is never shown to others.
+-- Column set matches GasPrice.toJson() in lib/models/gas_model.dart.
 -- ============================================================
 create table public.gas_prices (
-  id                  uuid primary key default uuid_generate_v4(),
-  reporter_id         uuid not null references public.users(id) on delete cascade,
-  -- OSM node ID of the fuel station (links to POI data via Overpass).
-  osm_station_node_id bigint not null,
-  latitude            double precision not null,
-  longitude           double precision not null,
-  -- Price in USD per gallon. Other currencies TODO when internationalizing.
-  price_usd_per_gallon numeric(5, 3) not null check (price_usd_per_gallon > 0),
-  -- Fuel grade: regular, midgrade, premium, diesel.
-  fuel_grade          text not null default 'regular',
-  reported_at         timestamptz not null default now()
+  id               uuid primary key default uuid_generate_v4(),
+  -- OSM node ID of the fuel station (text; joined with Overpass POI data).
+  station_osm_id   text not null,
+  -- Who reported this price — used ONLY to award Bravos, never shown to others.
+  reporter_id      uuid not null references public.users(id) on delete cascade,
+  -- Fuel grade (FuelGrade enum name).
+  grade            text not null check (grade in ('regular','midgrade','premium','diesel')),
+  -- Price in USD per gallon. Validated client-side to a sane range.
+  price_per_gallon numeric(5,3) not null check (price_per_gallon between 0.50 and 15.00),
+  reported_at      timestamptz not null default now()
 );
 
 alter table public.gas_prices enable row level security;
 
--- Gas prices are public community data — any authenticated user can read.
+-- Any authenticated user can read gas prices (community transparency).
 create policy "gas_prices: authenticated read"
   on public.gas_prices
   for select
   using (auth.role() = 'authenticated');
 
+-- Users can only insert their own price reports.
 create policy "gas_prices: insert own"
   on public.gas_prices
   for insert
   with check (auth.uid() = reporter_id);
+
+-- Index for fast station-based lookups (merged with Overpass data).
+create index idx_gas_prices_station
+  on public.gas_prices (station_osm_id, reported_at desc);
 
 -- ============================================================
 -- TABLE: user_reports
@@ -359,20 +526,16 @@ create policy "gas_prices: insert own"
 -- (Menace badge at 100+ reports per PRODUCT_BRIEF).
 -- ============================================================
 create table public.user_reports (
-  id           uuid primary key default uuid_generate_v4(),
-  reporter_id  uuid not null references public.users(id) on delete cascade,
+  id          uuid primary key default uuid_generate_v4(),
+  reporter_id uuid not null references public.users(id) on delete cascade,
   -- The user being reported. Never exposed to the reportee.
-  reported_id  uuid not null references public.users(id) on delete cascade,
+  reported_id uuid not null references public.users(id) on delete cascade,
   -- Brief reason (aggressive driving, reckless, etc.). Free text.
-  reason       text,
+  reason      text,
   -- Approximate location of the incident (coarsened to protect both parties).
-  latitude     double precision,
-  longitude    double precision,
-  reported_at  timestamptz not null default now()
-  -- Spam prevention (one report per reporter/reported pair per day) is
-  -- enforced by idx_user_reports_spam_guard below, which uses a unique
-  -- index on an expression — the correct Postgres pattern for functional
-  -- uniqueness (an inline unique() constraint only accepts plain columns).
+  latitude    double precision,
+  longitude   double precision,
+  reported_at timestamptz not null default now()
 );
 
 alter table public.user_reports enable row level security;
@@ -390,14 +553,11 @@ create policy "user_reports: insert own"
 
 -- Enforce one-report-per-pair-per-day.
 --
--- Why an IMMUTABLE wrapper function?
--- Postgres requires index expression functions to be IMMUTABLE (same inputs
--- always produce the same output). date_trunc(timestamptz) is only STABLE
--- because the result depends on the session timezone setting. By pinning to
--- 'UTC' inside an IMMUTABLE function we make the result genuinely constant
--- for any given input value — UTC has no DST rules, so the conversion is
--- deterministic.
-create or replace function public.migo_report_day(ts timestamptz)
+-- Why an IMMUTABLE wrapper function? Postgres requires index expression
+-- functions to be IMMUTABLE. date_trunc(timestamptz) is only STABLE because it
+-- depends on the session timezone. Pinning to UTC inside an IMMUTABLE function
+-- makes the result genuinely constant for any given input (UTC has no DST).
+create or replace function public.bravo_report_day(ts timestamptz)
 returns date
 language sql
 immutable
@@ -405,135 +565,13 @@ returns null on null input
 as $$ select (ts at time zone 'UTC')::date $$;
 
 create unique index idx_user_reports_spam_guard
-  on public.user_reports (reporter_id, reported_id, public.migo_report_day(reported_at));
+  on public.user_reports (reporter_id, reported_id, public.bravo_report_day(reported_at));
 
 -- ============================================================
--- TABLE: achievements
--- Unlockable archetype milestones and rare discoveries.
--- Rare/secret achievements have obscured unlock conditions so
--- players discover them organically (Phase 4).
--- ============================================================
-create table public.achievements (
-  id              uuid primary key default uuid_generate_v4(),
-  user_id         uuid not null references public.users(id) on delete cascade,
-  -- Achievement identifier (e.g. "first_alpr_report", "secret_night_owl").
-  achievement_key text not null,
-  -- Human-readable title shown in the UI.
-  title           text not null,
-  -- Description shown after unlock. NULL for secret achievements until earned.
-  description     text,
-  unlocked_at     timestamptz not null default now(),
-  unique (user_id, achievement_key)
-);
-
-alter table public.achievements enable row level security;
-
-create policy "achievements: own only"
-  on public.achievements
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
--- ============================================================
--- RPC: increment_hazard_confirmed
--- Called after a user casts a "still there" vote.
--- Increments confirmed_votes. If it crosses the community
--- threshold (3) the hazard is automatically marked confirmed.
---
--- Security: runs as SECURITY DEFINER so the RLS policy on
--- hazards (only owner can update) doesn't block the counter
--- increment. The function validates the caller is authenticated
--- and that the hazard exists before touching anything.
--- ============================================================
-create or replace function public.increment_hazard_confirmed(hazard_id uuid)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_threshold constant int := 3;
-begin
-  -- Only authenticated callers may invoke this.
-  if auth.uid() is null then
-    raise exception 'Not authenticated';
-  end if;
-
-  update public.hazards
-  set
-    confirmed_votes        = confirmed_votes + 1,
-    -- Auto-confirm once threshold is reached.
-    is_community_confirmed = (confirmed_votes + 1) >= v_threshold
-  where id = hazard_id;
-
-  if not found then
-    raise exception 'Hazard not found: %', hazard_id;
-  end if;
-end;
-$$;
-
--- Only authenticated users can call this function.
-revoke all on function public.increment_hazard_confirmed(uuid) from public;
-grant execute on function public.increment_hazard_confirmed(uuid) to authenticated;
-
--- ============================================================
--- RPC: increment_hazard_dismissed
--- Called after a user casts a "gone / false alarm" vote.
--- Increments dismissed_votes. If dismissed votes dominate
--- (>= threshold) the hazard is soft-deleted (expires now).
---
--- Same SECURITY DEFINER rationale as above.
--- ============================================================
-create or replace function public.increment_hazard_dismissed(hazard_id uuid)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_threshold constant int := 3;
-begin
-  if auth.uid() is null then
-    raise exception 'Not authenticated';
-  end if;
-
-  update public.hazards
-  set
-    dismissed_votes = dismissed_votes + 1,
-    -- If enough people say it's gone, expire it immediately.
-    expires_at      = case
-                        when (dismissed_votes + 1) >= v_threshold
-                     
--- ============================================================
--- PHASE 4: Archetype, Bravos, Achievements, Cosmetics
--- ============================================================
-
--- TABLE: archetype_profiles
--- One row per user. Recalculated at the end of each driving session.
--- ============================================================
-create table if not exists public.archetype_profiles (
-  user_id           uuid primary key references public.users(id) on delete cascade,
-  current_archetype text not null default 'zenMaster',
-  scores            jsonb not null default '{}',
-  rare_archetype    text,
-  badges            jsonb not null default '[]',
-  session_count     integer not null default 0,
-  consecutive_days  integer not null default 0,
-  updated_at        timestamptz default now()
-);
-
-alter table public.archetype_profiles enable row level security;
-
-create policy "archetype_profiles: own only"
-  on public.archetype_profiles
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
 -- TABLE: bravos_balance
--- Current Bravos balance + lifetime total per user.
+-- Current Bravos (reward currency) balance + lifetime total per user.
 -- ============================================================
-create table if not exists public.bravos_balance (
+create table public.bravos_balance (
   user_id         uuid primary key references public.users(id) on delete cascade,
   balance         integer not null default 0,
   lifetime_earned integer not null default 0,
@@ -548,50 +586,10 @@ create policy "bravos_balance: own only"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- TABLE: achievements_earned
--- Each row is one achievement unlock for one user.
--- ============================================================
-create table if not exists public.achievements_earned (
-  id              uuid primary key default uuid_generate_v4(),
-  user_id         uuid not null references public.users(id) on delete cascade,
-  achievement_id  text not null,
-  bravos_awarded  integer not null default 0,
-  earned_at       timestamptz not null default now(),
-  unique (user_id, achievement_id)
-);
-
-alter table public.achievements_earned enable row level security;
-
-create policy "achievements_earned: own only"
-  on public.achievements_earned
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
--- TABLE: cosmetics_unlocked
--- Cosmetics the user has earned. is_equipped = user opted in to display.
--- ============================================================
-create table if not exists public.cosmetics_unlocked (
-  id           uuid primary key default uuid_generate_v4(),
-  user_id      uuid not null references public.users(id) on delete cascade,
-  cosmetic_id  text not null,
-  unlocked_at  timestamptz not null default now(),
-  is_equipped  boolean not null default false,
-  unique (user_id, cosmetic_id)
-);
-
-alter table public.cosmetics_unlocked enable row level security;
-
-create policy "cosmetics_unlocked: own only"
-  on public.cosmetics_unlocked
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
 -- ============================================================
 -- RPC: increment_bravos
--- Atomically increments both balance and lifetime_earned.
--- Creates the row if it doesn't exist yet (first earn).
+-- Atomically increments balance and lifetime_earned, creating the
+-- row on first earn. SECURITY DEFINER; rejects edits to other users.
 -- ============================================================
 create or replace function public.increment_bravos(p_user_id uuid, p_amount int)
 returns void
@@ -620,173 +618,44 @@ revoke all on function public.increment_bravos(uuid, int) from public;
 grant execute on function public.increment_bravos(uuid, int) to authenticated;
 
 -- ============================================================
--- PHASE 5: Family Groups and Live Location Sharing
---
--- PRIVACY: family_locations rows expire after 10 minutes.
--- RLS ensures only members of the same group_id can read
--- each other's location. No external service receives any
--- location data — Supabase only.
+-- TABLE: achievements_earned
+-- One row per achievement unlock per user. achievement_id is the
+-- AchievementId enum name; bravos_awarded records the payout.
 -- ============================================================
+create table public.achievements_earned (
+  id             uuid primary key default uuid_generate_v4(),
+  user_id        uuid not null references public.users(id) on delete cascade,
+  achievement_id text not null,
+  bravos_awarded integer not null default 0,
+  earned_at      timestamptz not null default now(),
+  unique (user_id, achievement_id)
+);
 
--- TABLE: family_groups
-create table if not exists public.family_groups (
+alter table public.achievements_earned enable row level security;
+
+create policy "achievements_earned: own only"
+  on public.achievements_earned
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- ============================================================
+-- TABLE: cosmetics_unlocked
+-- Cosmetics the user has earned. is_equipped = user opted in to display.
+-- ============================================================
+create table public.cosmetics_unlocked (
   id          uuid primary key default uuid_generate_v4(),
-  -- Human-readable group name chosen by the creator (e.g. "The Garcias").
-  name        text not null,
-  -- 6-char alphanumeric invite code. Never logged, never pushed.
-  invite_code text not null unique,
-  created_by  uuid not null references public.users(id) on delete cascade,
-  created_at  timestamptz not null default now()
+  user_id     uuid not null references public.users(id) on delete cascade,
+  cosmetic_id text not null,
+  unlocked_at timestamptz not null default now(),
+  is_equipped boolean not null default false,
+  unique (user_id, cosmetic_id)
 );
 
-alter table public.family_groups enable row level security;
+alter table public.cosmetics_unlocked enable row level security;
 
--- Only members of the group can read it.
-create policy "family_groups: members only"
-  on public.family_groups
-  for select
-  using (
-    exists (
-      select 1 from public.family_memberships fm
-      where fm.group_id = id and fm.user_id = auth.uid()
-    )
-  );
-
--- Any authenticated user can create a group.
-create policy "family_groups: authenticated insert"
-  on public.family_groups
-  for insert
-  with check (auth.uid() = created_by);
-
--- Only the creator can update (e.g. regenerate invite code).
-create policy "family_groups: creator update"
-  on public.family_groups
-  for update
-  using (auth.uid() = created_by);
-
--- Creator can delete (triggers cascade on memberships + locations).
-create policy "family_groups: creator delete"
-  on public.family_groups
-  for delete
-  using (auth.uid() = created_by);
-
--- TABLE: family_memberships
-create table if not exists public.family_memberships (
-  group_id  uuid not null references public.family_groups(id) on delete cascade,
-  user_id   uuid not null references public.users(id) on delete cascade,
-  joined_at timestamptz not null default now(),
-  primary key (group_id, user_id)
-);
-
-alter table public.family_memberships enable row level security;
-
--- Members can read the membership list of their own group.
-create policy "family_memberships: group members only"
-  on public.family_memberships
-  for select
-  using (
-    exists (
-      select 1 from public.family_memberships fm2
-      where fm2.group_id = group_id and fm2.user_id = auth.uid()
-    )
-  );
-
--- Authenticated users can join (insert themselves).
-create policy "family_memberships: self insert"
-  on public.family_memberships
-  for insert
+create policy "cosmetics_unlocked: own only"
+  on public.cosmetics_unlocked
+  for all
+  using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
-
--- Users can only delete their own membership (leave group).
-create policy "family_memberships: self delete"
-  on public.family_memberships
-  for delete
-  using (auth.uid() = user_id);
-
--- TABLE: family_locations
--- Live GPS pings. expires_at enforces the 10-minute TTL.
--- A pg_cron job (or Edge Function) should prune expired rows periodically.
-create table if not exists public.family_locations (
-  user_id    uuid not null references public.users(id) on delete cascade,
-  group_id   uuid not null references public.family_groups(id) on delete cascade,
-  latitude   double precision not null,
-  longitude  double precision not null,
-  -- Speed in m/s from GPS — used for "driving vs parked" display.
-  speed_mps  double precision not null default 0,
-  updated_at timestamptz not null default now(),
-  -- Row expires after 10 minutes. Prevents stale pings lingering on map.
-  expires_at timestamptz not null,
-  primary key (user_id, group_id)
-);
-
-alter table public.family_locations enable row level security;
-
--- Only members of the same group can read each other's location.
-create policy "family_locations: group members only"
-  on public.family_locations
-  for select
-  using (
-    exists (
-      select 1 from public.family_memberships fm
-      where fm.group_id = group_id and fm.user_id = auth.uid()
-    )
-  );
-
--- Users can only upsert their own location row.
-create policy "family_locations: own row upsert"
-  on public.family_locations
-  for insert
-  with check (auth.uid() = user_id);
-
-create policy "family_locations: own row update"
-  on public.family_locations
-  for update
-  using (auth.uid() = user_id);
-
--- Users can delete their own location (when they stop sharing).
-create policy "family_locations: own row delete"
-  on public.family_locations
-  for delete
-  using (auth.uid() = user_id);
-
--- Index for fast group-based queries (the Realtime stream filters by group_id).
-create index if not exists idx_family_locations_group
-  on public.family_locations (group_id, expires_at);
-
--- ============================================================
--- TABLE: gas_prices
--- Community-reported fuel prices per station and grade.
--- Modeled after Waze fuel prices: no third-party feed,
--- all data stays in Supabase, reporter ID never shown to others.
--- ============================================================
-create table public.gas_prices (
-  id              uuid primary key default uuid_generate_v4(),
-  -- OSM node ID of the gas station (from Overpass query).
-  station_id      text not null,
-  -- Who reported this price — used ONLY to award Bravos, never shown to others.
-  reporter_id     uuid not null references auth.users(id) on delete cascade,
-  -- Fuel grade reported.
-  fuel_grade      text not null check (fuel_grade in ('regular','midgrade','premium','diesel')),
-  -- Price in USD per gallon. Validated client-side: $0.50–$15.00.
-  price_per_gallon numeric(5,3) not null check (price_per_gallon between 0.50 and 15.00),
-  -- When this price was reported.
-  reported_at     timestamptz not null default now()
-);
-
-alter table public.gas_prices enable row level security;
-
--- Any authenticated user can read gas prices (community transparency).
-create policy "gas_prices: authenticated read"
-  on public.gas_prices
-  for select
-  using (auth.role() = 'authenticated');
-
--- Users can only insert their own price reports.
-create policy "gas_prices: own insert"
-  on public.gas_prices
-  for insert
-  with check (auth.uid() = reporter_id);
-
--- Index for fast station-based lookups (merged with Overpass data).
-create index if not exists idx_gas_prices_station
-  on public.gas_prices (station_id, reported_at desc);

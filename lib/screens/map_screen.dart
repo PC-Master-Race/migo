@@ -25,6 +25,7 @@ import '../constants.dart';
 import '../models/route_model.dart';
 import '../models/saved_location_model.dart';
 import '../providers/location_provider.dart';
+import '../providers/driving_session_provider.dart';
 import '../providers/saved_location_provider.dart';
 import '../providers/map_provider.dart';
 import '../providers/routing_provider.dart';
@@ -320,6 +321,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     ref.watch(prefAutoRecalcProvider);
     ref.watch(ttsAnnouncerProvider);
     ref.watch(hazardAlertWatcherProvider);
+    // Drives the archetype loop: feeds GPS to the session tracker + POI checks.
+    ref.watch(drivingSessionEngineProvider);
 
     if (position != null) {
       _startPrefetchOnce(position);
@@ -334,6 +337,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final bool isOffRoute = ref.watch(offRouteProvider);
     if (isOffRoute && route != null && !_recalcQueued) {
       _recalcQueued = true;
+      // Count the reroute toward this trip's archetype metrics (Chaos/Scout).
+      ref.read(drivingSessionTrackerProvider).noteReroute();
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await ref.read(activeRouteProvider.notifier).recalculate();
         await Future<void>.delayed(const Duration(seconds: 10));
@@ -372,8 +377,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: <Widget>[
-          // Base map — perspective-tilted when actively navigating.
-          _buildMapWithTilt(zoomMode, position, route, navState),
+          // Base map — flat, full-screen (the perspective-tilt experiment was
+          // removed because it shrank the map to ~1/3 of the screen).
+          _buildMap(zoomMode, position, route),
 
           // Attribution badge (bottom-right corner).
           _buildAttributionBadge(zoomMode),
@@ -460,17 +466,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   // --- MAP LAYERS ---
-
-  Widget _buildMapWithTilt(
-    MapZoomMode zoomMode,
-    Position? position,
-    BravoRoute? route,
-    NavigationState? navState,
-  ) {
-    // Perspective tilt removed — the Transform caused the map to only occupy
-    // ~1/3 of the screen. Navigation now uses a flat map auto-zoomed to 18.
-    return _buildMap(zoomMode, position, route);
-  }
+  // Navigation uses a flat, full-screen map (auto-zoomed to 18 when a route
+  // starts). An earlier perspective-tilt experiment was removed — the
+  // Transform shrank the visible map to ~1/3 of the screen.
 
   Widget _buildMap(
     MapZoomMode zoomMode,

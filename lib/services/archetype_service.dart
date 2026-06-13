@@ -311,6 +311,10 @@ class ArchetypeService {
   // -------------------------------------------------------------------------
 
   Future<void> _persist(ArchetypeProfile profile) async {
+    // Offline / dev mode (placeholder Supabase credentials): skip the write so
+    // recalculateAfterSession still succeeds and the in-memory avatar updates.
+    // The profile simply isn't saved between launches until a backend exists.
+    if (!SupabaseService.isConnected) return;
     await SupabaseService.client
         .from('archetype_profiles')
         .upsert(profile.toJson());

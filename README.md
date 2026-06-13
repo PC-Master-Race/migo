@@ -49,7 +49,11 @@ flutter run
 
 ---
 
-## Phase 1 — What was built
+## Build status
+
+Phases 1–7 of the PRODUCT_BRIEF plan are implemented, plus a batch of post-Phase-7 polish (search, satellite hybrid view, navigation map tilt). The detailed notes below start with the Phase 1 foundation and then summarize what each later phase added. The personality system has since evolved away from the brief's original archetype names — see *Archetype system* below.
+
+## Phase 1 — Foundation & map
 
 ### Flutter project structure
 Full folder scaffold per PRODUCT_BRIEF: all models, service stubs, providers, screens, utils, widgets, and the docs landing page. Every file has a header comment. No magic numbers.
@@ -84,7 +88,37 @@ Displays GPS speed in mph (jitter-suppressed below 2 mph). Shows the current roa
   - Politely paced at ~7 tiles/sec for the donated OSM tile servers
 
 ### Supabase schema
-13 tables, all with RLS, column comments, and covering indexes. See `supabase/schema.sql`. Seed data for Bay Area dev testing in `supabase/seed.sql`.
+16 tables, all with RLS, column comments, and covering indexes. See `supabase/schema.sql`. Seed data for Bay Area dev testing in `supabase/seed.sql`. The schema file runs cleanly top-to-bottom in the Supabase SQL editor (tables ordered by foreign-key dependency; the self-referential family-membership policies use a `SECURITY DEFINER` helper to avoid Postgres policy recursion).
+
+---
+
+## Phases 2–7 — What was added
+
+### Phase 2 — Routing engine (Valhalla)
+`RoutingService` calls the OSM-hosted Valhalla endpoint. Toggles map to native costing options: fastest/shortest, fuel-efficient, fewest-stops, avoid freeways/tolls/popular routes, and ALPR avoidance (rendered as `exclude_polygons` around validated cameras). Turn-by-turn maneuvers, off-route detection with recalculation, and a TTS hook are all wired. See the engine-choice writeup at the top of `lib/services/routing_service.dart`.
+
+### Phase 3 — Hazard system
+Pin-drop reporting with cartoon icon types, community voting with a confirmation threshold before public display, expiry prompts, a 2-mile proximity alert banner (auto-dismissing, no taps while driving), and per-type alert sounds. OSM-tagged ALPR cameras are pulled via Overpass and layered with community reports.
+
+### Phase 4 — Avatars, archetypes & Bravos
+Driving-session metrics feed an archetype engine (EMA-smoothed scores; the avatar snaps to the top archetype). Adds the **Bravos** reward currency, achievements, and unlockable cosmetics — a system that extends beyond the original brief. Avatars are code-drawn (`lib/widgets/avatar/avatar_painter.dart`) and colored from the user's vehicle profile.
+
+Trips are detected automatically from motion by `DrivingSessionTracker` (`lib/services/driving_session_tracker.dart`), wired through `driving_session_provider.dart`: each GPS update runs the POI "where you go" unlock check and feeds the metrics accumulator, and on trip end the archetype engine recalculates and a `driving_sessions` row is written. Privacy holds throughout — earning a cosmetic only unlocks it; it appears on the avatar only when the user equips it (`is_equipped`). The archetype updates in-memory even in offline/dev mode so the loop is visible without a backend.
+
+### Phase 5 — Family & live location
+Invite-code family groups with real-time location sharing via Supabase Realtime. `family_locations` rows carry a 10-minute TTL; RLS restricts reads to fellow group members only. Location sharing is fully opt-in.
+
+### Phase 6 — Gas prices & POI
+Community fuel-price reporting merged onto Overpass-sourced gas-station POIs, surfaced on map markers.
+
+### Phase 7 — Onboarding, settings & polish
+Splash, minimal onboarding (name + vehicle), and a grouped settings screen covering route/privacy/vehicle/notification/map preferences.
+
+### Post-Phase-7 polish
+Destination search with Photon/Nominatim geocoding and speech-to-text input, and an Esri satellite + labels hybrid view at street zoom. Navigation uses a **flat, full-screen map** auto-zoomed to level 18 — an earlier perspective-tilt experiment was removed because the `Transform` shrank the map to ~1/3 of the screen.
+
+### Archetype system (diverged from brief)
+The implemented `DrivingArchetype` enum is `grandpa, rocket, ghost, scout, phantom, zenMaster, chaosAgent, nightOwl, streetRat` with rare archetypes `creature, guardian, silkHands` — not the brief's original Grandpa/Speed Demon/Eco Warrior/etc. The brief is no longer the source of truth for archetype names; `lib/models/archetype_model.dart` is.
 
 ---
 
@@ -98,18 +132,18 @@ Displays GPS speed in mph (jitter-suppressed below 2 mph). Shows the current roa
 | Local storage | Hive, Isar, SQLite | Hive CE | Isar maintenance stalled; Hive CE actively maintained, pure Dart |
 | State management | Provider, Bloc, Riverpod | Riverpod | Modern, testable, recommended for new Flutter projects |
 | Typography | Nunito, Fredoka One | Nunito | Fredoka One is display-only; Nunito has full weight range for HUD hierarchy |
-| Routing engine | OSRM, Valhalla | **TBD — Phase 2** | Valhalla's dynamic costing looks promising for ALPR-avoidance penalty zones |
+| Routing engine | OSRM, Valhalla | **Valhalla** | Native `use_tolls`/`use_highways` costing + `exclude_polygons` for ALPR zones + speech-ready instruction strings, all on the public OSM endpoint with no API key |
+| Voice guidance | flutter_tts only, ElevenLabs | ElevenLabs with flutter_tts fallback | High-quality voice when a key is set; on-device flutter_tts keeps it fully offline otherwise. Only instruction text is sent — never location or identity |
 
 ---
 
-## What Phase 2 requires
+## Known gaps & next up
 
-- **Routing engine decision:** Evaluate OSRM vs Valhalla. Key criteria: offline capability, Flutter HTTP API shape, custom costing flexibility for ALPR-avoidance penalty zones and "avoid popular routes."
-- **Route calculation** with all toggles: fastest (default), shortest, fuel efficient, fewest stops, avoid freeways/tolls/popular routes, ALPR avoidance.
-- **Turn-by-turn instructions** displayed in the HUD.
-- **Route deviation detection** and automatic recalculation.
-- **Voice guidance hook** using Flutter's default TTS (ElevenLabs TODO clearly marked).
-- **Mid-route toggle support** — any preference change triggers instant recalculation.
+- **Bundle Nunito fonts.** `bravo_theme.dart` references the `Nunito` family but the `.ttf` files aren't committed yet, so it currently falls back to the system rounded font (`assets/fonts/` only has a `.gitkeep`).
+- **Background-location manifest entries.** Background GPS is architecturally ready but the Android/iOS permission entries still need adding (see TODO in `location_service.dart`).
+- **`family_locations` pruning.** Rows have a 10-minute `expires_at` but nothing deletes expired rows yet — needs a `pg_cron` job or Edge Function.
+- **Self-hosted Valhalla.** The public OSM endpoint sees origin/destination coordinates; a proxy or self-hosted instance would close that privacy gap (TODO at the top of `routing_service.dart`).
+- **Phase 8 / demo mode.** The brief's solo-testing demo mode (simulated avatars on nearby roads) is not yet built.
 
 ---
 

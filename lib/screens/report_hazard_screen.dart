@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../models/hazard_model.dart';
 import '../providers/hazard_provider.dart';
+import '../providers/driving_session_provider.dart';
 import '../providers/location_provider.dart';
 import '../theme/bravo_theme.dart';
 import '../widgets/hazard_icons/hazard_icon.dart';
@@ -175,6 +176,8 @@ class ReportHazardSheet extends ConsumerWidget {
     if (!context.mounted) return;
 
     if (!ref.read(reportHazardProvider).hasError) {
+      // Count this report toward the current trip (feeds the Scout archetype).
+      ref.read(drivingSessionTrackerProvider).noteHazardReported();
       // Reset selection and close.
       ref.read(selectedHazardTypeProvider.notifier).state = null;
       Navigator.of(context).pop();

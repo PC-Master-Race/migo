@@ -1,4 +1,4 @@
--- seed.sql — Development seed data for Migo.
+-- seed.sql — Development seed data for Bravo Maps.
 -- Run this AFTER schema.sql in the Supabase SQL editor (with service role,
 -- which is the default in the SQL editor).
 --
@@ -69,14 +69,17 @@ values
 on conflict do nothing;
 
 -- ============================================================
--- STEP 4: Archetypes
+-- STEP 4: Archetype profiles
+-- Archetype names are DrivingArchetype enum values from
+-- lib/models/archetype_model.dart (grandpa, rocket, ghost, scout,
+-- phantom, zenMaster, chaosAgent, nightOwl, streetRat).
 -- ============================================================
-insert into public.archetypes (user_id, current_archetype, scores)
+insert into public.archetype_profiles (user_id, current_archetype, scores)
 values
-  ('00000000-0000-0000-0000-000000000001', 'secretAgent',
-   '{"secretAgent": 0.72, "ecoWarrior": 0.45, "timeLord": 0.38}'),
-  ('00000000-0000-0000-0000-000000000002', 'responsibleEmployee',
-   '{"responsibleEmployee": 0.61, "trucker": 0.29}')
+  ('00000000-0000-0000-0000-000000000001', 'phantom',
+   '{"phantom": 0.72, "ghost": 0.45, "scout": 0.38}'),
+  ('00000000-0000-0000-0000-000000000002', 'zenMaster',
+   '{"zenMaster": 0.61, "grandpa": 0.29}')
 on conflict (user_id) do nothing;
 
 -- ============================================================
@@ -110,16 +113,23 @@ on conflict do nothing;
 -- STEP 7: Gas prices
 -- ============================================================
 insert into public.gas_prices
-  (reporter_id, osm_station_node_id, latitude, longitude,
-   price_usd_per_gallon, fuel_grade)
+  (reporter_id, station_osm_id, grade, price_per_gallon)
 values
-  ('00000000-0000-0000-0000-000000000002', 123456789, 37.7712, -122.4089, 4.599, 'regular'),
-  ('00000000-0000-0000-0000-000000000002', 987654321, 37.7803, -122.4201, 4.799, 'premium')
+  ('00000000-0000-0000-0000-000000000002', '123456789', 'regular', 4.599),
+  ('00000000-0000-0000-0000-000000000002', '987654321', 'premium', 4.799)
 on conflict do nothing;
 
 -- ============================================================
--- STEP 8: Family group
+-- STEP 8: Family group + membership
+-- The creator is also inserted as a member so loadMembers() returns
+-- them in dev (the app adds the creator as a member on group creation).
 -- ============================================================
-insert into public.family_groups (owner_id, name, invite_code)
-values ('00000000-0000-0000-0000-000000000001', 'Dev Family', 'MIGO-DEV1')
+insert into public.family_groups (id, created_by, name, invite_code)
+values ('00000000-0000-0000-0000-0000000f0001',
+        '00000000-0000-0000-0000-000000000001', 'Dev Family', 'BRAVO-DEV1')
+on conflict do nothing;
+
+insert into public.family_memberships (group_id, user_id)
+values ('00000000-0000-0000-0000-0000000f0001',
+        '00000000-0000-0000-0000-000000000001')
 on conflict do nothing;
