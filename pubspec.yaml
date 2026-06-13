@@ -5,7 +5,7 @@
 name: migo
 description: Privacy-first navigation app with offline maps, ALPR avoidance, and personality-driven cartoon avatars.
 publish_to: "none" # Not a pub.dev package; this is an application.
-version: 0.1.0+1
+version: 0.2.0+2   # Phase 2 bump.
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -15,42 +15,40 @@ dependencies:
     sdk: flutter
 
   # --- STATE MANAGEMENT ---
-  # Riverpod: chosen per PRODUCT_BRIEF (modern, testable).
   flutter_riverpod: ^2.6.1
 
   # --- MAPS ---
-  # flutter_map: OSM-native renderer, no API key required (see decisions log).
   flutter_map: ^7.0.2
-  # latlong2: coordinate types used by flutter_map.
   latlong2: ^0.9.1
 
   # --- LOCATION ---
-  # geolocator: GPS position/speed streams with background capability on both
-  # Android and iOS (no Google Play Services requirement for raw GPS).
   geolocator: ^13.0.2
 
   # --- BACKEND ---
-  # supabase_flutter: auth, Postgres, realtime, storage. No Firebase anywhere.
   supabase_flutter: ^2.8.0
 
   # --- LOCAL STORAGE ---
-  # hive_ce (Hive Community Edition): chosen over Isar — see decisions log in
-  # README.md. Used for tile-cache metadata, settings, and offline queues.
+  # Hive CE: chosen over Isar (see README). Used for tile metadata + settings.
   hive_ce: ^2.10.0
   hive_ce_flutter: ^2.2.0
 
   # --- CONNECTIVITY ---
-  # connectivity_plus: detects WiFi vs cellular so tile prefetch NEVER runs on
-  # cellular without explicit user permission (PRODUCT_BRIEF hard rule).
   connectivity_plus: ^6.1.0
 
   # --- FILESYSTEM ---
-  # path_provider: locates the app documents dir for the offline tile store.
   path_provider: ^2.1.4
 
   # --- NETWORK ---
-  # http: plain HTTP client for OSM tile fetches and Overpass API queries.
   http: ^1.2.2
+
+  # --- TTS (Phase 2) ---
+  # flutter_tts: on-device TTS engine. Used as the fallback when no ElevenLabs
+  # key is configured. Fully offline, no third-party calls.
+  flutter_tts: ^4.0.2
+
+  # audioplayers: plays the MP3 bytes returned by the ElevenLabs API.
+  # No analytics, no network calls beyond what we explicitly make.
+  audioplayers: ^6.1.0
 
 dev_dependencies:
   flutter_test:
@@ -60,18 +58,12 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # --- BUNDLED ASSETS ---
-  # All assets ship inside the app. Fonts are bundled locally instead of being
-  # fetched from Google Fonts at runtime — a privacy decision: the app must not
-  # phone any Google server. TODO: [add Nunito .ttf files to assets/fonts/]
-  # [deferred until font files are downloaded and license file added]
   assets:
     - assets/avatars/
     - assets/hazard_icons/
     - assets/sounds/
 
   # TODO: [uncomment once Nunito font files are committed to assets/fonts/]
-  # [deferred: binary font files added in a follow-up commit; see migo_theme.dart]
   # fonts:
   #   - family: Nunito
   #     fonts:

@@ -14,8 +14,8 @@ const String osmTileUrlTemplate = 'https://tile.openstreetmap.org/{z}/{x}/{y}.pn
 const String satelliteTileUrlTemplate =
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
-/// User-Agent sent with every tile/Overpass request. OSM's usage policy
-/// requires apps to identify themselves; generic agents get blocked.
+/// User-Agent sent with every tile/Overpass/Nominatim request. OSM's usage
+/// policy requires apps to identify themselves; generic agents get blocked.
 const String osmUserAgent = 'migo-navigation-app (privacy-first OSS project)';
 
 /// Overpass API endpoint used to query OSM data (speed limits, POIs, fuel
@@ -116,3 +116,85 @@ const String hiveBoxTileMetadata = 'tile_metadata';
 
 /// Stores user settings (cache radius, WiFi-only flags, toggles).
 const String hiveBoxSettings = 'settings';
+
+// --- USER MARKER ---
+
+/// Diameter (logical pixels) of the user's position dot on the map.
+const double userMarkerSize = 26.0;
+
+// --- ROUTING ---
+// Phase 2: Valhalla-based routing via the public OSM-hosted instance.
+//
+// Engine choice: Valhalla over OSRM because:
+//   • use_tolls / use_highways are native costing options — no custom OSM
+//     profiles needed on a self-hosted server (OSRM's public API lacks these).
+//   • exclude_polygons supports ALPR-avoidance penalty zones natively.
+//   • verbal_pre_transition_instruction strings feed directly into TTS.
+//   • The OSM community hosts a public Valhalla endpoint with no API key.
+//
+// TODO: [self-host Valhalla for production to eliminate third-party network
+// dependency] [deferred: needs server budget decision]
+
+/// Public Valhalla routing endpoint (OSM-hosted, no API key required).
+const String valhallaApiUrl = 'https://valhalla1.openstreetmap.de/route';
+
+/// Nominatim geocoding endpoint (OSM-hosted, no API key, no tracking).
+const String nominatimSearchUrl = 'https://nominatim.openstreetmap.org/search';
+
+/// Max results returned by a Nominatim search.
+const int nominatimMaxResults = 5;
+
+/// Meters from the route polyline beyond which the user is considered off-route
+/// and recalculation is triggered. 40 m covers GPS jitter + minor lane drift.
+const double offRouteThresholdMeters = 40.0;
+
+/// Meters before the next maneuver at which the TTS instruction fires.
+/// 200 m gives ~10 s of warning at 45 mph — enough to change lanes.
+const int maneuverAlertDistanceMeters = 200;
+
+/// Meters from a maneuver point at which the app advances to the next step.
+/// 25 m ≈ passing through the intersection.
+const double stepAdvanceRadiusMeters = 25.0;
+
+/// Stroke width (dp) for the route polyline drawn on the map.
+const double routePolylineWidthDp = 6.0;
+
+/// Valhalla costing model used for all car routing. 'auto' applies road-class
+/// and turn penalties appropriate for a typical passenger vehicle.
+const String valhallaCostingModel = 'auto';
+
+/// Radius (meters) of the exclude polygon placed around each ALPR camera when
+/// avoidAlprCameras is enabled. Small enough to target just the camera
+/// approach, large enough to route a different street.
+const double alprExcludeRadiusMeters = 150.0;
+
+/// Number of polygon vertices used to approximate each ALPR exclusion circle.
+/// 8 is a good balance between accuracy and Valhalla request payload size.
+const int alprExcludePolygonVertices = 8;
+
+// --- TTS ---
+// ElevenLabs provides high-quality voiced navigation instructions. The app
+// falls back to flutter_tts (on-device, fully offline) when no ElevenLabs
+// key is configured, so the feature degrades gracefully.
+// Privacy: only the instruction text string is sent to ElevenLabs — no
+// location data, no user identity, no session metadata.
+
+/// ElevenLabs text-to-speech base URL. Voice ID appended at runtime.
+const String elevenLabsApiUrl = 'https://api.elevenlabs.io/v1/text-to-speech';
+
+/// ElevenLabs output format: mp3_44100_128 gives good quality at ~60 KB/instruction.
+const String elevenLabsOutputFormat = 'mp3_44100_128';
+
+/// Hive key for the user's ElevenLabs API key (stored locally, never sent to
+/// Supabase — stays on device only).
+const String hiveKeyElevenLabsApiKey = 'elevenlabs_api_key';
+
+/// Hive key for the chosen ElevenLabs voice ID.
+const String hiveKeyElevenLabsVoiceId = 'elevenlabs_voice_id';
+
+/// Hive key for the TTS-enabled boolean setting.
+const String hiveKeyTtsEnabled = 'tts_enabled';
+
+/// Default ElevenLabs voice ID — "Rachel" (warm, clear, calm). Users can
+/// override this in settings once Phase 2 settings screen is built.
+const String elevenLabsDefaultVoiceId = '21m00Tcm4TlvDq8ikWAM';

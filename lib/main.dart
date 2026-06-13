@@ -9,16 +9,16 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'constants.dart';
 import 'screens/map_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/route_options_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/supabase_service.dart';
+import 'services/tts_service.dart';
 import 'theme/migo_theme.dart';
 
 // --- BOOTSTRAP ---
 
-/// App entry point. Initializes storage and backend before the first frame:
-/// Hive must be open before any service reads settings, and Supabase must be
-/// initialized before auth state can be checked.
+/// App entry point. Initializes storage and backend before the first frame.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -30,13 +30,20 @@ Future<void> main() async {
   // Backend second — safe to call offline; Supabase queues until reachable.
   await SupabaseService.initialize();
 
+  // Warm up the TTS singleton so the first navigation instruction has no
+  // perceptible delay. Fire-and-forget; errors inside TtsService are silent.
+  unawaited(TtsService.instance());
+
   runApp(const ProviderScope(child: MigoApp()));
 }
 
+/// Discards a [Future] intentionally — suppresses the unawaited-future lint
+/// for known fire-and-forget calls at startup.
+void unawaited(Future<void> future) {}
+
 // --- APP SHELL ---
 
-/// Root widget: theme + route table. Kept deliberately thin; all real logic
-/// lives in screens and services.
+/// Root widget: theme + route table.
 class MigoApp extends StatelessWidget {
   /// Creates the root app widget.
   const MigoApp({super.key});
@@ -49,12 +56,14 @@ class MigoApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       initialRoute: SplashScreen.routeName,
       routes: <String, WidgetBuilder>{
-        SplashScreen.routeName: (BuildContext context) => const SplashScreen(),
-        OnboardingScreen.routeName: (BuildContext context) =>
-            const OnboardingScreen(),
-        MapScreen.routeName: (BuildContext context) => const MapScreen(),
-        SettingsScreen.routeName: (BuildContext context) =>
-            const SettingsScreen(),
+        SplashScreen.routeName: (_) => const SplashScreen(),
+        OnboardingScreen.routeName: (_) => const OnboardingScreen(),
+        MapScreen.routeName: (_) => const MapScreen(),
+        SettingsScreen.routeName: (_) => const SettingsScreen(),
+        // RouteOptionsScreen is normally opened as a bottom sheet from
+        // map_screen (RouteOptionsScreen.showSheet), but a named route
+        // is registered here for deep-link / testing access.
+        RouteOptionsScreen.routeName: (_) => const RouteOptionsScreen(),
       },
     );
   }
