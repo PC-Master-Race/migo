@@ -157,7 +157,13 @@ const String valhallaApiUrl = 'https://valhalla1.openstreetmap.de/route';
 /// Nominatim geocoding endpoint (OSM-hosted, no API key, no tracking).
 const String nominatimSearchUrl = 'https://nominatim.openstreetmap.org/search';
 
-/// Max results returned by a Nominatim search.
+/// Photon geocoding endpoint — POI search with distance-biased ranking.
+/// Powered by OSM data, run by Komoot. No API key, no tracking.
+/// Preferred over Nominatim for business/POI queries because it sorts by
+/// distance to the provided lat/lon rather than by OSM importance score.
+const String photonSearchUrl = 'https://photon.komoot.io/api/';
+
+/// Max results returned by a geocoding search.
 const int nominatimMaxResults = 5;
 
 /// Meters from the route polyline beyond which the user is considered off-route
