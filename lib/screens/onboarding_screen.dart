@@ -1,57 +1,62 @@
-// onboarding_screen.dart — Minimal first-run setup: name + car info, done.
-// Full implementation is Phase 7; this stub collects nothing yet and simply
-// forwards to the map so Phase 1 testing isn't blocked.
+// onboarding_screen.dart — Polished first-run experience.
+// 5 pages: Welcome → Privacy Promise → Your Name → Location → Ready.
+// Shown once; splash_screen routes here only when onboarding_complete=false.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hive_ce/hive.dart';
 
 import '../constants.dart';
+import '../theme/bravo_theme.dart';
+import '../widgets/avatar/avatar_painter.dart';
+import '../models/archetype_model.dart';
 import 'map_screen.dart';
 import 'splash_screen.dart' show settingsKeyOnboardingComplete;
 
-// --- SCREEN ---
+// ---------------------------------------------------------------------------
+// Local constants
+// ---------------------------------------------------------------------------
 
-/// First-run onboarding. Phase 7 adds the real form (name, make, model,
-/// year, color); for now it's a pass-through so the map is reachable.
-class OnboardingScreen extends StatelessWidget {
-  /// Creates the onboarding screen.
+const Duration _pageAnimDuration = Duration(milliseconds: 380);
+const Curve _pageAnimCurve = Curves.easeInOutCubic;
+const Color _darkBg = Color(0xFF0D0D1A);
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
+
+class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
-
-  /// Route name used in main.dart's route table.
   static const String routeName = '/onboarding';
 
-  /// Marks onboarding complete and continues to the map.
-  void _completeOnboarding(BuildContext context) {
-    Hive.box<dynamic>(hiveBoxSettings)
-        .put(settingsKeyOnboardingComplete, true);
-    Navigator.of(context).pushReplacementNamed(MapScreen.routeName);
-  }
+  @override
+  State<OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+class _OnboardingScreenState extends State<OnboardingScreen> {
+  final PageController _pageController = PageController();
+  final TextEditingController _nameController = TextEditingController();
+  int _currentPage = 0;
+  static const int _pageCount = 5;
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                // Copy specified verbatim in PRODUCT_BRIEF Phase 7.
-                'You can add more in Settings anytime — favorite places, '
-                'route preferences, privacy options, and more.',
-                textAlign: TextAlign.center,
-              ),
-            ),
-            // TODO: [real onboarding form: name, car make/model/year/color]
-            // [deferred to Phase 7 per the phase plan]
-            ElevatedButton(
-              onPressed: () => _completeOnboarding(context),
-              child: const Text('Let\'s drive'),
-            ),
-          ],
-        ),
-      ),
-    );
+  void dispose() {
+    _pageController.dispose();
+    _nameController.dispose();
+    super.dispose();
   }
-}
+
+  void _next() {
+    if (_currentPage < _pageCount - 1) {
+      _pageController.nextPage(
+          duration: _pageAnimDuration, curve: _pageAnimCurve);
+    } else {
+      _finish();
+    }
+  }
+
+  void _skip() => _finish();
+
+  void _finish() {
+    // Save display name if provided.
+    final String name = _nam

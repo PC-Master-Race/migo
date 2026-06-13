@@ -35,6 +35,7 @@ import 'report_gas_price_screen.dart';
 import '../widgets/hazard_icons/hazard_icon.dart';
 import '../widgets/hud/hazard_alert_banner.dart';
 import 'report_hazard_screen.dart';
+import 'settings_screen.dart';
 // BravosHudChip is in user_location_marker.dart (already imported above)
 
 // --- LOCAL CONSTANTS ---
@@ -273,6 +274,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               right: 16,
               child: RecenterButton(onPressed: _recenterOnUser),
             ),
+
+          // Settings gear — top-right, tucked below the status bar.
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            right: 16,
+            child: _SettingsButton(context: context),
+          ),
 
           // Search results dropdown.
           if (_showSearchResults) _buildSearchResultsOverlay(),
@@ -900,10 +908,8 @@ class _RouteOptionsButton extends StatelessWidget {
       elevation: 4,
       tooltip: 'Route options',
       onPressed: () => RouteOptionsScreen.showSheet(context),
-      child: const Icon(Icons.tune_rounded),
-    );
-  }
-}
+      child: con
+// --- REPORT HAZARD BUTTON ---
 
 class _ReportHazardButton extends StatelessWidget {
   const _ReportHazardButton({required this.context});
@@ -912,4 +918,36 @@ class _ReportHazardButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton.small(
-  
+      heroTag: 'reportHazard',
+      backgroundColor: migoCoral,
+      foregroundColor: Colors.white,
+      elevation: 4,
+      tooltip: 'Report hazard',
+      onPressed: () => ReportHazardScreen.showSheet(context),
+      child: const Icon(Icons.warning_amber_rounded),
+    );
+  }
+}
+
+// --- SETTINGS BUTTON ---
+
+class _SettingsButton extends StatelessWidget {
+  const _SettingsButton({required this.context});
+  final BuildContext context;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.45),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => Navigator.of(context).pushNamed(SettingsScreen.routeName),
+        child: const Padding(
+          padding: EdgeInsets.all(8),
+          child: Icon(Icons.settings_rounded, color: Colors.white, size: 22),
+        ),
+      ),
+    );
+  }
+}

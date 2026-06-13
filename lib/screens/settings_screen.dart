@@ -1,41 +1,49 @@
 // settings_screen.dart — All user-facing toggles, grouped and labeled.
-// Full implementation is Phase 7. The group skeleton exists now so other
-// phases have a stable place to register their settings.
+// Phase 7 full implementation: account, privacy, navigation, map, gas/POI,
+// Bravos & achievements, and about.
+//
+// Dark theme (#0D0D1A) consistent with family_screen and other overlays.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-// --- SCREEN ---
+import '../models/archetype_model.dart';
+import '../models/poi_model.dart';
+import '../providers/archetype_provider.dart';
+import '../providers/gas_poi_provider.dart';
+import '../providers/map_provider.dart';
+import '../providers/settings_provider.dart';
+import '../services/supabase_service.dart';
+import '../theme/bravo_theme.dart';
+import '../widgets/avatar/avatar_painter.dart';
 
-/// Settings, grouped per PRODUCT_BRIEF: route preferences, privacy, vehicle
-/// profile, notifications, map preferences.
-class SettingsScreen extends StatelessWidget {
-  /// Creates the settings screen.
+// ---------------------------------------------------------------------------
+// Local constants
+// ---------------------------------------------------------------------------
+
+const Color _bg      = Color(0xFF0D0D1A);
+const Color _card    = Color(0xFF161625);
+const Color _divider = Color(0xFF252535);
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
+
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
-
-  /// Route name used in main.dart's route table.
   static const String routeName = '/settings';
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
-        children: const <Widget>[
-          // TODO: [Route preferences group: fuel efficient, shortest, fastest,
-          // fewest stops, avoid freeway/tolls/popular] [deferred to Phase 7]
-          ListTile(title: Text('Route preferences'), enabled: false),
-          // TODO: [Privacy group: ALPR avoidance, location sharing, family
-          // group management, privacy windows] [deferred to Phase 7]
-          ListTile(title: Text('Privacy'), enabled: false),
-          // TODO: [Vehicle profile editor] [deferred to Phase 7]
-          ListTile(title: Text('Vehicle profile'), enabled: false),
-          // TODO: [Notification preferences] [deferred to Phase 7]
-          ListTile(title: Text('Notifications'), enabled: false),
-          // TODO: [Map preferences: offline cache radius, WiFi-only updates]
-          // [deferred to Phase 7]
-          ListTile(title: Text('Map preferences'), enabled: false),
-        ],
-      ),
-    );
-  }
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  late final TextEditingController _nameCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: ref.read(displayNameProvider));
+  }
+
+  @ov

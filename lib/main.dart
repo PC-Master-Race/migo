@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
 import 'constants.dart';
+import 'screens/family_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/route_options_screen.dart';
@@ -68,8 +69,4 @@ class BravoMapsApp extends StatelessWidget {
         // RouteOptionsScreen is normally opened as a bottom sheet from
         // map_screen (RouteOptionsScreen.showSheet), but a named route
         // is registered here for deep-link / testing access.
-        RouteOptionsScreen.routeName: (_) => const RouteOptionsScreen(),
-      },
-    );
-  }
-}
+        RouteOptionsScreen.routeName: (_) => const RouteOp
