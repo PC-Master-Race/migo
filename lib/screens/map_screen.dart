@@ -13,6 +13,7 @@
 import 'dart:math' as math;
 
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:speech_to_text/speech_recognition_result.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -222,7 +223,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _showSearchResults = false;
     });
     await _speech.listen(
-      onResult: (stt.SpeechRecognitionResult result) {
+      onResult: (SpeechRecognitionResult result) {
         final String words = result.recognizedWords;
         _searchController.text = words;
         ref.read(geocodeQueryProvider.notifier).state = words;
@@ -431,16 +432,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               child: RecenterButton(onPressed: _recenterOnUser),
             ),
 
-          // Settings gear — top-right, below status bar.
+          // Settings gear — below the search bar, not overlapping it.
           Positioned(
-            top: statusBarH + 12,
+            top: statusBarH + 68,
             right: 16,
             child: _SettingsButton(context: context),
           ),
 
-          // Layer toggle panel — stacked below settings, right side.
+          // Layer toggle panel — stacked below the settings gear.
           Positioned(
-            top: statusBarH + 56,
+            top: statusBarH + 112,
             right: 16,
             child: _buildLayerToggles(context),
           ),
@@ -493,6 +494,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ? NetworkTileProvider()
               : OfflineFirstTileProvider(),
         ),
+        // In satellite/street mode stack two transparent Esri reference layers
+        // on top of the imagery: one for place names, one for road/street names.
+        if (zoomMode == MapZoomMode.street) ...<Widget>[
+          TileLayer(
+            urlTemplate: satelliteRoadsTileUrlTemplate,
+            userAgentPackageName: osmUserAgent,
+            tileProvider: NetworkTileProvider(),
+          ),
+          TileLayer(
+            urlTemplate: satelliteLabelsTileUrlTemplate,
+            userAgentPackageName: osmUserAgent,
+            tileProvider: NetworkTileProvider(),
+          ),
+        ],
         _buildCartoonTintOverlay(zoomMode),
 
         // Route polyline (below user marker so the dot stays on top).
@@ -925,16 +940,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 trailing: GestureDetector(
                   onTap: () => _showSaveLocationSheet(context, r),
                   child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    padding: EdgeInsets.symmetric(horizontal: 4),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: <Widget>[
                         Icon(Icons.bookmark_add_rounded,
-                            size: 22, color: migoCoral),
+                            size: 18, color: migoCoral),
                         Text(
                           'Save',
                           style: TextStyle(
-                              fontSize: 10,
+                              fontSize: 9,
                               color: migoCoral,
                               fontWeight: FontWeight.w600),
                         ),

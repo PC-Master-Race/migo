@@ -14,6 +14,19 @@ const String osmTileUrlTemplate = 'https://tile.openstreetmap.org/{z}/{x}/{y}.pn
 const String satelliteTileUrlTemplate =
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
+/// Esri reference overlay — transparent PNG tiles with city/neighbourhood/
+/// place-name labels. Stacked on top of [satelliteTileUrlTemplate] in street
+/// mode. Free, no API key.
+const String satelliteLabelsTileUrlTemplate =
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+
+/// Esri transportation overlay — transparent PNG tiles with road names,
+/// highway shields, and route numbers. Combined with [satelliteLabelsTileUrlTemplate]
+/// to produce a full hybrid view (satellite + road names + place names).
+/// Free, no API key. Same attribution as the base imagery layer.
+const String satelliteRoadsTileUrlTemplate =
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}';
+
 /// User-Agent sent with every tile/Overpass/Nominatim request. OSM's usage
 /// policy requires apps to identify themselves; generic agents get blocked.
 const String osmUserAgent = 'bravo-maps-app (privacy-first OSS project)';
