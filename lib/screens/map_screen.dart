@@ -221,11 +221,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               child: const _OffRouteBadge(),
             ),
 
-          // Speed HUD (top-left, below banners).
-          Positioned(
-            top: navState != null ? 164 : 96,
+          // Speed HUD — bottom-left so it never overlaps the status bar
+          // or the search/maneuver banners at the top.
+          const Positioned(
+            bottom: 32,
             left: 16,
-            child: const SpeedHud(),
+            child: SpeedHud(),
           ),
 
           // Route options button (bottom-left, only when navigating).
