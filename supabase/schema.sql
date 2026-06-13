@@ -362,9 +362,11 @@ create table public.user_reports (
   -- Approximate location of the incident (coarsened to protect both parties).
   latitude     double precision,
   longitude    double precision,
-  reported_at  timestamptz not null default now(),
-  -- Prevent spam: one report per reporter per reported user per day.
-  unique (reporter_id, reported_id, (date_trunc('day', reported_at)))
+  reported_at  timestamptz not null default now()
+  -- Spam prevention (one report per reporter/reported pair per day) is
+  -- enforced by idx_user_reports_spam_guard below, which uses a unique
+  -- index on an expression — the correct Postgres pattern for functional
+  -- uniqueness (an inline unique() constraint only accepts plain columns).
 );
 
 alter table public.user_reports enable row level security;
@@ -379,6 +381,12 @@ create policy "user_reports: insert own"
   on public.user_reports
   for insert
   with check (auth.uid() = reporter_id);
+
+-- Enforce one-report-per-pair-per-day using an expression index.
+-- date_trunc('day', ...) truncates the timestamp to midnight UTC so all
+-- reports within the same calendar day collapse to the same key.
+create unique index idx_user_reports_spam_guard
+  on public.user_reports (reporter_id, reported_id, date_trunc('day', reported_at));
 
 -- ============================================================
 -- TABLE: achievements
@@ -421,17 +429,4 @@ create index idx_hazards_location
 
 -- ALPR map queries: same pattern.
 create index idx_alpr_locations_location
-  on public.alpr_locations (latitude, longitude)
-  where is_validated = true;
-
--- Gas price queries by station node.
-create index idx_gas_prices_station
-  on public.gas_prices (osm_station_node_id, reported_at desc);
-
--- Driving sessions by user for archetype recalculation.
-create index idx_driving_sessions_user
-  on public.driving_sessions (user_id, started_at desc);
-
--- User reports count for Menace badge calculation.
-create index idx_user_reports_reported
-  on public.user_reports (reported_id, reported_at desc);
+  on public.alpr_locations 
