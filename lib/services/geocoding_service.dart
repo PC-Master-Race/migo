@@ -5,7 +5,7 @@
 // no user identity leaves the device. Usage policy requires the osmUserAgent
 // header and a request limit of max 1 request/second — enforced by the
 // debounce in the UI layer (not here, to keep this service stateless).
-// TODO: [proxy through Migo server so destination queries never leave to OSM]
+// TODO: [proxy through Bravo server so destination queries never leave to OSM]
 // [deferred: same as Overpass proxy — needs server infrastructure]
 
 import 'dart:convert';
@@ -19,37 +19,78 @@ import '../models/route_model.dart';
 // --- SERVICE ---
 
 /// Geocodes free-text queries to coordinates using the Nominatim API.
+///
+/// Search strategy (two-pass + distance sort):
+///
+///  Pass 1 — strict local box (bounded=1, ~50 km radius).
+///    Nominatim only returns results inside the viewbox.
+///    If at least one result is found, stop here and sort by distance.
+///
+///  Pass 2 — soft global fallback (bounded=0, same box).
+///    Used when the strict box returns nothing — e.g. the user typed a
+///    specific place that genuinely doesn't exist nearby ("Yoshinoya Beverly
+///    Hills" from Upland). Results are still sorted by distance so the closest
+///    one leads.
+///
+/// Why two passes instead of bounded=0 alone:
+///   Nominatim's "importance" score (based on Wikipedia links, OSM node rank,
+///   etc.) can push a globally famous branch to the top even when there's one
+///   50 metres away. bounded=1 completely prevents that for the common case.
 class GeocodingService {
-  /// Searches for places matching [query].
+  /// Searches for places matching [query], biased toward [userPosition].
   ///
-  /// When [userPosition] is provided a ~50 km viewbox is added so nearby
-  /// results rank first. [bounded]=0 means Nominatim *prefers* within the box
-  /// but still falls back outside — so "Yoshinoya" finds your nearest location
-  /// first, and an explicit "Yoshinoya Beverly Hills" still resolves anywhere.
-  ///
-  /// Returns up to [nominatimMaxResults] results. Returns an empty list on
-  /// any network or parse error so callers can degrade gracefully.
+  /// Returns up to [nominatimMaxResults] results sorted closest-first.
+  /// Returns an empty list on any network or parse error.
   Future<List<GeocodingResult>> search(
     String query, {
     LatLng? userPosition,
   }) async {
-    if (query.trim().isEmpty) return <GeocodingResult>[];
+    final String q = query.trim();
+    if (q.isEmpty) return <GeocodingResult>[];
 
-    // Build a ~50 km bounding box centred on the user's position.
-    // Nominatim viewbox format: lon_left,lat_top,lon_right,lat_bottom (NW→SE).
-    const double viewboxDeg = 0.45; // ≈ 50 km at typical US latitudes
+    if (userPosition == null) {
+      // No GPS — single pass, no box.
+      return _fetch(q, userPosition: null, bounded: false);
+    }
+
+    // Pass 1: strict local box.
+    final List<GeocodingResult> local =
+        await _fetch(q, userPosition: userPosition, bounded: true);
+    if (local.isNotEmpty) {
+      return _sortByDistance(local, userPosition);
+    }
+
+    // Pass 2: global fallback — sort so closest still leads.
+    final List<GeocodingResult> global =
+        await _fetch(q, userPosition: userPosition, bounded: false);
+    return _sortByDistance(global, userPosition);
+  }
+
+  // --- INTERNAL ---
+
+  Future<List<GeocodingResult>> _fetch(
+    String query, {
+    required LatLng? userPosition,
+    required bool bounded,
+  }) async {
+    // Nominatim viewbox: lon_left,lat_top,lon_right,lat_bottom (NW → SE).
+    // 0.45 ° ≈ 50 km at US latitudes — wide enough for a metro area.
+    const double viewboxDeg = 0.45;
+
     final Map<String, String> params = <String, String>{
       'q': query,
       'format': 'json',
       'limit': '$nominatimMaxResults',
       'addressdetails': '1',
+      'countrycodes': 'us', // keep results in the US by default
     };
+
     if (userPosition != null) {
       final double lat = userPosition.latitude;
       final double lon = userPosition.longitude;
       params['viewbox'] =
           '${lon - viewboxDeg},${lat + viewboxDeg},${lon + viewboxDeg},${lat - viewboxDeg}';
-      params['bounded'] = '0'; // prefer inside box; allow outside as fallback
+      params['bounded'] = bounded ? '1' : '0';
     }
 
     final Uri uri =
@@ -57,22 +98,34 @@ class GeocodingService {
 
     try {
       final http.Response response = await http
-          .get(
-            uri,
-            headers: <String, String>{'User-Agent': osmUserAgent},
-          )
+          .get(uri, headers: <String, String>{'User-Agent': osmUserAgent})
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200) return <GeocodingResult>[];
       final List<dynamic> items = jsonDecode(response.body) as List<dynamic>;
       return items
-          .map((dynamic item) =>
-              _parseResult(item as Map<String, dynamic>))
+          .map((dynamic item) => _parseResult(item as Map<String, dynamic>))
           .whereType<GeocodingResult>()
           .toList();
     } catch (_) {
       return <GeocodingResult>[];
     }
+  }
+
+  /// Sort [results] by straight-line distance from [user], closest first.
+  List<GeocodingResult> _sortByDistance(
+    List<GeocodingResult> results,
+    LatLng user,
+  ) {
+    const Distance dist = Distance();
+    results.sort((GeocodingResult a, GeocodingResult b) {
+      final double da =
+          dist.as(LengthUnit.Meter, user, a.position);
+      final double db =
+          dist.as(LengthUnit.Meter, user, b.position);
+      return da.compareTo(db);
+    });
+    return results;
   }
 
   GeocodingResult? _parseResult(Map<String, dynamic> item) {
@@ -85,11 +138,10 @@ class GeocodingService {
     final double? lon = double.tryParse(lonStr);
     if (lat == null || lon == null) return null;
 
-    // Build a short label: first two comma-separated parts of the display name.
+    // Short label: first two comma-separated parts of the Nominatim display name.
     final List<String> parts = displayName.split(', ');
-    final String shortName = parts.length >= 2
-        ? '${parts[0]}, ${parts[1]}'
-        : parts[0];
+    final String shortName =
+        parts.length >= 2 ? '${parts[0]}, ${parts[1]}' : parts[0];
 
     return GeocodingResult(
       displayName: displayName,
