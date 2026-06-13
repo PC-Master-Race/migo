@@ -737,12 +737,36 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  /// Horizontal row of Home / Work / Favorite chips shown when the search bar
-  /// is focused but empty. Tapping one navigates to that saved location.
+  /// Saved-location chips (or a hint card if nothing is saved yet).
   Widget _buildSavedLocationChips() {
     final List<SavedLocation> saved = ref.watch(savedLocationsProvider);
-    if (saved.isEmpty) return const SizedBox.shrink();
 
+    // Empty state — show a hint so new users know the feature exists.
+    if (saved.isEmpty) {
+      return Material(
+        elevation: 2,
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.bookmark_add_rounded,
+                  size: 18, color: migoCoral.withValues(alpha: 0.7)),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Search for a place, then tap the bookmark to save Home, Work, or Favorites here.',
+                  style: TextStyle(fontSize: 12, color: migoInk),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Saved chips row.
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -826,12 +850,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       fontSize: 12,
                       color: migoInk.withValues(alpha: 0.5)),
                 ),
-                trailing: IconButton(
-                  icon: Icon(Icons.bookmark_add_outlined,
-                      size: 20,
-                      color: migoInk.withValues(alpha: 0.4)),
-                  tooltip: 'Save location',
-                  onPressed: () => _showSaveLocationSheet(context, r),
+                trailing: GestureDetector(
+                  onTap: () => _showSaveLocationSheet(context, r),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(Icons.bookmark_add_rounded,
+                            size: 22, color: migoCoral),
+                        Text(
+                          'Save',
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: migoCoral,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
                 onTap: () => _selectDestination(r),
               );
