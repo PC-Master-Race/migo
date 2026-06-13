@@ -14,7 +14,7 @@ import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/supabase_service.dart';
 import 'services/tts_service.dart';
-import 'theme/migo_theme.dart';
+import 'theme/bravo_theme.dart';
 
 // --- BOOTSTRAP ---
 
@@ -34,7 +34,7 @@ Future<void> main() async {
   // perceptible delay. Fire-and-forget; errors inside TtsService are silent.
   unawaited(TtsService.instance());
 
-  runApp(const ProviderScope(child: MigoApp()));
+  runApp(const ProviderScope(child: BravoMapsApp()));
 }
 
 /// Discards a [Future] intentionally — suppresses the unawaited-future lint
@@ -44,15 +44,15 @@ void unawaited(Future<void> future) {}
 // --- APP SHELL ---
 
 /// Root widget: theme + route table.
-class MigoApp extends StatelessWidget {
+class BravoMapsApp extends StatelessWidget {
   /// Creates the root app widget.
-  const MigoApp({super.key});
+  const BravoMapsApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Migo',
-      theme: buildMigoTheme(),
+      title: 'Bravo Maps',
+      theme: buildBravoTheme(),
       debugShowCheckedModeBanner: false,
       initialRoute: SplashScreen.routeName,
       routes: <String, WidgetBuilder>{

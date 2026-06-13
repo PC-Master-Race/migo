@@ -18,7 +18,7 @@ import '../providers/routing_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/map_service.dart';
 import '../services/supabase_service.dart';
-import '../theme/migo_theme.dart';
+import '../theme/bravo_theme.dart';
 import '../widgets/cartoon_avatar/user_location_marker.dart';
 import '../widgets/hud/speed_hud.dart';
 import '../widgets/map_controls/recenter_button.dart';
@@ -173,7 +173,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Widget build(BuildContext context) {
     final MapZoomMode zoomMode = ref.watch(zoomModeProvider);
     final Position? position = ref.watch(positionStreamProvider).valueOrNull;
-    final MigoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
+    final BravoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
     final NavigationState? navState = ref.watch(navigationStateProvider);
 
     // Activate side-effect providers every build so they stay alive.
@@ -283,7 +283,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Widget _buildMapWithTilt(
     MapZoomMode zoomMode,
     Position? position,
-    MigoRoute? route,
+    BravoRoute? route,
     NavigationState? navState,
   ) {
     final Widget map = _buildMap(zoomMode, position, route);
@@ -302,7 +302,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Widget _buildMap(
     MapZoomMode zoomMode,
     Position? position,
-    MigoRoute? route,
+    BravoRoute? route,
   ) {
     return FlutterMap(
       mapController: _mapController,

@@ -16,7 +16,7 @@ const String satelliteTileUrlTemplate =
 
 /// User-Agent sent with every tile/Overpass/Nominatim request. OSM's usage
 /// policy requires apps to identify themselves; generic agents get blocked.
-const String osmUserAgent = 'migo-navigation-app (privacy-first OSS project)';
+const String osmUserAgent = 'bravo-maps-app (privacy-first OSS project)';
 
 /// Overpass API endpoint used to query OSM data (speed limits, POIs, fuel
 /// stations). The main public instance; can be swapped for a self-hosted one.

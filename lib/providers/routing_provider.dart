@@ -44,9 +44,9 @@ final StateProvider<RoutePreferences> routePreferencesProvider =
 /// Screens call [RouteNotifier.calculate] to kick off a new route request;
 /// the provider automatically recalculates when preferences change while a
 /// destination is set (see [prefAutoRecalcProvider]).
-final StateNotifierProvider<RouteNotifier, AsyncValue<MigoRoute?>>
+final StateNotifierProvider<RouteNotifier, AsyncValue<BravoRoute?>>
     activeRouteProvider =
-    StateNotifierProvider<RouteNotifier, AsyncValue<MigoRoute?>>(
+    StateNotifierProvider<RouteNotifier, AsyncValue<BravoRoute?>>(
   (Ref ref) => RouteNotifier(ref),
 );
 
@@ -58,8 +58,8 @@ RouteNotifier routeNotifierOf(WidgetRef ref) =>
 // NOTIFIER
 // ============================================================
 
-class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
-  RouteNotifier(this._ref) : super(const AsyncValue<MigoRoute?>.data(null));
+class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
+  RouteNotifier(this._ref) : super(const AsyncValue<BravoRoute?>.data(null));
 
   final Ref _ref;
   final RoutingService _service = RoutingService();
@@ -75,11 +75,11 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
     List<LatLng> alprLocations = const <LatLng>[],
   }) async {
     final int token = ++_calcToken;
-    state = const AsyncValue<MigoRoute?>.loading();
+    state = const AsyncValue<BravoRoute?>.loading();
 
     final position = _ref.read(positionStreamProvider).valueOrNull;
     if (position == null) {
-      state = AsyncValue<MigoRoute?>.error(
+      state = AsyncValue<BravoRoute?>.error(
         'Waiting for GPS fix',
         StackTrace.current,
       );
@@ -89,7 +89,7 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
     final RoutePreferences prefs = _ref.read(routePreferencesProvider);
     final LatLng origin = LatLng(position.latitude, position.longitude);
 
-    final AsyncValue<MigoRoute?> result = await AsyncValue.guard<MigoRoute?>(
+    final AsyncValue<BravoRoute?> result = await AsyncValue.guard<BravoRoute?>(
       () => _service.calculateRoute(
         origin: origin,
         destination: destination,
@@ -106,7 +106,7 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
   /// Recalculates from the current GPS position using the same destination
   /// and updated preferences. Called on preference toggle changes or off-route.
   Future<void> recalculate({List<LatLng> alprLocations = const <LatLng>[]}) async {
-    final MigoRoute? current = state.valueOrNull;
+    final BravoRoute? current = state.valueOrNull;
     if (current == null) return;
     await calculate(
       destination: current.destination,
@@ -117,7 +117,7 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
   /// Clears the active route and cancels any in-flight calculation.
   void clear() {
     _calcToken++;
-    state = const AsyncValue<MigoRoute?>.data(null);
+    state = const AsyncValue<BravoRoute?>.data(null);
   }
 }
 
@@ -132,7 +132,7 @@ class RouteNotifier extends StateNotifier<AsyncValue<MigoRoute?>> {
 final Provider<void> prefAutoRecalcProvider = Provider<void>((Ref ref) {
   ref.watch(routePreferencesProvider);
   // Only recalculate if a route is currently active.
-  final AsyncValue<MigoRoute?> routeState = ref.watch(activeRouteProvider);
+  final AsyncValue<BravoRoute?> routeState = ref.watch(activeRouteProvider);
   if (routeState.valueOrNull != null) {
     // Schedule the recalculation after the current build cycle completes so
     // we don't call setState during build.
@@ -148,7 +148,7 @@ final Provider<void> prefAutoRecalcProvider = Provider<void>((Ref ref) {
 /// from the computed route polyline. Watched by map_screen to trigger
 /// recalculation.
 final Provider<bool> offRouteProvider = Provider<bool>((Ref ref) {
-  final MigoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
+  final BravoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
   if (route == null || route.waypoints.isEmpty) return false;
 
   final position = ref.watch(positionStreamProvider).valueOrNull;
@@ -168,7 +168,7 @@ final Provider<bool> offRouteProvider = Provider<bool>((Ref ref) {
 /// Returns null when no route is active.
 final Provider<NavigationState?> navigationStateProvider =
     Provider<NavigationState?>((Ref ref) {
-  final MigoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
+  final BravoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
   if (route == null || route.steps.isEmpty) return null;
 
   final position = ref.watch(positionStreamProvider).valueOrNull;

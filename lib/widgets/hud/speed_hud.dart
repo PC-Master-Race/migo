@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/location_provider.dart';
 import '../../providers/speed_limit_provider.dart';
-import '../../theme/migo_theme.dart';
+import '../../theme/bravo_theme.dart';
 
 // --- WIDGET ---
 

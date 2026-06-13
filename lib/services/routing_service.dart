@@ -55,7 +55,7 @@ import '../models/route_model.dart';
 // --- SERVICE ---
 
 /// Calls the Valhalla HTTP API to compute routes, decodes the response, and
-/// maps it to [MigoRoute] + [ManeuverStep] list.
+/// maps it to [BravoRoute] + [ManeuverStep] list.
 class RoutingService {
   // Valhalla's auto costing_options parameters.
   // use_tolls:    0.0 = strongly avoid, 1.0 = prefer.
@@ -66,7 +66,7 @@ class RoutingService {
   /// Calculates a route from [origin] to [destination] using [preferences].
   ///
   /// Throws [RoutingException] on API errors; callers should handle gracefully.
-  Future<MigoRoute> calculateRoute({
+  Future<BravoRoute> calculateRoute({
     required LatLng origin,
     required LatLng destination,
     required RoutePreferences preferences,
@@ -183,7 +183,7 @@ class RoutingService {
 
   // --- RESPONSE PARSER ---
 
-  MigoRoute _parseResponse(
+  BravoRoute _parseResponse(
     Map<String, dynamic> json, {
     required LatLng destination,
     required RoutePreferences preferences,
@@ -215,7 +215,7 @@ class RoutingService {
         .map((dynamic m) => _parseManeuver(m as Map<String, dynamic>))
         .toList();
 
-    return MigoRoute(
+    return BravoRoute(
       waypoints: waypoints,
       distanceMeters: distanceMeters,
       estimatedSeconds: durationSeconds,

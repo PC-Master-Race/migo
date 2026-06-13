@@ -5,7 +5,7 @@
 import 'package:flutter/material.dart';
 
 import '../../constants.dart';
-import '../../theme/migo_theme.dart';
+import '../../theme/bravo_theme.dart';
 
 // --- WIDGET ---
 

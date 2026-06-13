@@ -5,10 +5,10 @@
 // --- MODEL ---
 
 /// A Migo user account with privacy and route preferences.
-class MigoUser {
+class BravoUser {
   /// Creates a user. All privacy-sensitive flags default to the most private
   /// option — privacy-first means opt IN to sharing, never opt out.
-  const MigoUser({
+  const BravoUser({
     required this.id,
     required this.displayName,
     this.locationSharingEnabled = false,
@@ -36,8 +36,8 @@ class MigoUser {
   final DateTime? homeRegionCachedAt;
 
   /// Builds a user from a Supabase `users` row.
-  factory MigoUser.fromJson(Map<String, dynamic> json) {
-    return MigoUser(
+  factory BravoUser.fromJson(Map<String, dynamic> json) {
+    return BravoUser(
       id: json['id'] as String,
       displayName: json['display_name'] as String,
       locationSharingEnabled: json['location_sharing_enabled'] as bool? ?? false,
