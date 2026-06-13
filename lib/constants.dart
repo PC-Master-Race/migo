@@ -45,6 +45,19 @@ const double mapMaxZoom = 19.0;
 /// useful, close enough to feel local once location arrives.
 const double mapDefaultZoom = 15.0;
 
+/// Zoom snapped to on the first GPS fix. 17 ≈ individual buildings visible —
+/// matches the close street-level view Waze opens to when location is acquired.
+const double mapFirstFixZoom = 17.0;
+
+/// Perspective divisor for the navigation-mode map tilt Transform.
+/// Higher value = more subtle perspective shrink toward the horizon.
+const double mapTiltPerspective = 0.0012;
+
+/// Tilt angle (radians) applied to the map in active navigation mode.
+/// 0.8 rad ≈ 46° — enough to give a Waze-style driving perspective without
+/// the top of the map becoming unreadably small.
+const double mapTiltRadians = 0.8;
+
 /// Fallback map center before the first GPS fix: geographic center of the
 /// contiguous US. Replaced by the real position the moment GPS reports in.
 const double fallbackCenterLatitude = 39.8283;

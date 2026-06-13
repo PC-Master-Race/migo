@@ -3,6 +3,8 @@
 // Phase 2: destination search bar, route polyline, maneuver banner,
 //          off-route recalculation, route options bottom sheet.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -57,6 +59,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _isFollowingUser = true;
   bool _prefetchStarted = false;
   bool _showSearchResults = false;
+  bool _hasHadFirstFix = false;
 
   @override
   void dispose() {
@@ -98,6 +101,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       LatLng(position.latitude, position.longitude),
       wifiOnlyAllowed: ref.read(wifiOnlyTileSyncProvider),
     );
+  }
+
+  /// On the first GPS fix, snap the camera to [mapFirstFixZoom] so the
+  /// user sees a Waze-like close-up street view rather than a wide overview.
+  void _handleFirstFix(Position position) {
+    if (_hasHadFirstFix) return;
+    _hasHadFirstFix = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _mapController.move(
+        LatLng(position.latitude, position.longitude),
+        mapFirstFixZoom,
+      );
+    });
   }
 
   // --- SEARCH ---
@@ -160,6 +177,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     if (position != null) {
       _startPrefetchOnce(position);
+      _handleFirstFix(position);
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _followPositionIfEnabled(position),
       );
@@ -177,8 +195,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: <Widget>[
-          // Base map.
-          _buildMap(zoomMode, position, route),
+          // Base map — wrapped in a perspective tilt when actively navigating.
+          _buildMapWithTilt(zoomMode, position, route, navState),
 
           // Attribution (bottom right).
           _buildAttributionBadge(zoomMode),
@@ -238,6 +256,28 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   // --- MAP LAYERS ---
+
+  /// Wraps [_buildMap] in a perspective Transform when [navState] is active,
+  /// giving a Waze-like driving-perspective tilt (45-60 degrees). Returns the
+  /// flat map when not navigating so the top-down view is fully interactive.
+  Widget _buildMapWithTilt(
+    MapZoomMode zoomMode,
+    Position? position,
+    MigoRoute? route,
+    NavigationState? navState,
+  ) {
+    final Widget map = _buildMap(zoomMode, position, route);
+    if (navState == null) return map;
+    return Transform(
+      // Anchor the tilt at the bottom centre so the user's position
+      // stays in place while the horizon recedes toward the top.
+      alignment: Alignment.bottomCenter,
+      transform: Matrix4.identity()
+        ..setEntry(3, 2, mapTiltPerspective)   // perspective depth
+        ..rotateX(-mapTiltRadians),            // tilt top away from viewer
+      child: map,
+    );
+  }
 
   Widget _buildMap(
     MapZoomMode zoomMode,
