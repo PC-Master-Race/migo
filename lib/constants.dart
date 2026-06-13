@@ -45,6 +45,11 @@ const double mapMaxZoom = 19.0;
 /// useful, close enough to feel local once location arrives.
 const double mapDefaultZoom = 15.0;
 
+/// Fallback map center before the first GPS fix: geographic center of the
+/// contiguous US. Replaced by the real position the moment GPS reports in.
+const double fallbackCenterLatitude = 39.8283;
+const double fallbackCenterLongitude = -98.5795;
+
 // --- OFFLINE TILE CACHE ---
 
 /// Radius (miles) auto-cached around the user's frequent locations on WiFi.
