@@ -16,7 +16,9 @@ import '../services/supabase_service.dart';
 // ---------------------------------------------------------------------------
 
 final Provider<String?> currentUserIdProvider = Provider<String?>(
-  (Ref ref) => SupabaseService.client.auth.currentSession?.user.id,
+  (Ref ref) => SupabaseService.isConnected
+      ? SupabaseService.client.auth.currentSession?.user.id
+      : null,
 );
 
 // ---------------------------------------------------------------------------

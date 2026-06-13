@@ -33,7 +33,9 @@ Future<void> main() async {
   await SupabaseService.initialize();
 
   // Init BravoService — loads already-earned achievements so we don't re-award.
-  final String? uid = SupabaseService.client.auth.currentSession?.user.id;
+  final String? uid = SupabaseService.isConnected
+      ? SupabaseService.client.auth.currentSession?.user.id
+      : null;
   if (uid != null) unawaited(BravoService.instance.init(uid));
 
   // Warm up the TTS singleton so the first navigation instruction has no
