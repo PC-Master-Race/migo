@@ -12,6 +12,8 @@
 
 import 'dart:math' as math;
 
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,6 +86,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
+  // Speech-to-text
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _speechAvailable = false;
+  bool _isListening = false;
+
   bool _isFollowingUser = true;
   bool _prefetchStarted = false;
   bool _showSearchResults = false;
@@ -102,6 +109,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // Rebuild whenever the search bar gains/loses focus so the saved-location
     // chips appear immediately when the user taps the bar (before typing).
     _searchFocus.addListener(() => setState(() {}));
+    // Initialise STT — check availability once; no permission prompt yet.
+    _speech.initialize().then((bool available) {
+      if (mounted) setState(() => _speechAvailable = available);
+    });
   }
 
   @override
@@ -198,6 +209,43 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       isScrollControlled: true,
       builder: (_) => _SaveLocationSheet(result: result),
     );
+  }
+
+  // --- SPEECH TO TEXT ---
+
+  Future<void> _startListening() async {
+    if (!_speechAvailable || _isListening) return;
+    _searchController.clear();
+    ref.read(geocodeQueryProvider.notifier).state = '';
+    setState(() {
+      _isListening = true;
+      _showSearchResults = false;
+    });
+    await _speech.listen(
+      onResult: (stt.SpeechRecognitionResult result) {
+        final String words = result.recognizedWords;
+        _searchController.text = words;
+        ref.read(geocodeQueryProvider.notifier).state = words;
+        if (result.finalResult) {
+          setState(() {
+            _isListening = false;
+            _showSearchResults = words.isNotEmpty;
+          });
+        } else {
+          // Show partial result in field while listening.
+          setState(() {});
+        }
+      },
+      listenFor: const Duration(seconds: 10),
+      pauseFor: const Duration(seconds: 3),
+      cancelOnError: true,
+      partialResults: true,
+    );
+  }
+
+  Future<void> _stopListening() async {
+    await _speech.stop();
+    setState(() => _isListening = false);
   }
 
   // --- SEARCH ---
@@ -709,6 +757,30 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     icon: const Icon(Icons.close_rounded, size: 18),
                     color: migoInk.withValues(alpha: 0.5),
                     onPressed: _clearSearch,
+                  ),
+                // Mic button — speech-to-text destination search.
+                if (_speechAvailable)
+                  GestureDetector(
+                    onTap: _isListening ? _stopListening : _startListening,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: _isListening
+                              ? migoCoral
+                              : migoInk.withValues(alpha: 0.08),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
+                          size: 18,
+                          color: _isListening ? Colors.white : migoInk,
+                        ),
+                      ),
+                    ),
                   ),
                 // Route options tune icon — only when a route is active.
                 if (ref.watch(activeRouteProvider).valueOrNull != null)

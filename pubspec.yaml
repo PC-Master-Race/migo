@@ -41,6 +41,11 @@ dependencies:
   # --- NETWORK ---
   http: ^1.2.2
 
+  # --- SPEECH TO TEXT ---
+  # Uses device-native STT engine — no API key, no third-party server calls.
+  # On Android this routes through the system SpeechRecognizer service.
+  speech_to_text: ^7.0.0
+
   # --- TTS (Phase 2) ---
   # flutter_tts: on-device TTS engine. Used as the fallback when no ElevenLabs
   # key is configured. Fully offline, no third-party calls.
