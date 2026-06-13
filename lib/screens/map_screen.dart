@@ -27,6 +27,11 @@ import '../models/hazard_model.dart';
 import '../providers/hazard_provider.dart';
 import '../providers/family_provider.dart';
 import '../widgets/avatar/family_member_marker.dart';
+import '../models/poi_model.dart';
+import '../models/gas_model.dart';
+import '../providers/gas_poi_provider.dart';
+import '../widgets/map_controls/gas_station_marker.dart';
+import 'report_gas_price_screen.dart';
 import '../widgets/hazard_icons/hazard_icon.dart';
 import '../widgets/hud/hazard_alert_banner.dart';
 import 'report_hazard_screen.dart';
@@ -182,6 +187,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // Activate side-effect providers every build so they stay alive.
     ref.watch(prefAutoRecalcProvider);
     ref.watch(ttsAnnouncerProvider);
+    ref.watch(hazardAlertWatcherProvider);
 
     if (position != null) {
       _startPrefetchOnce(position);
@@ -279,8 +285,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: const HazardAlertStack(),
           ),
 
-          // Phase 5: family member live-location layer.
-          _buildFamilyLayer(ref),
         ],
       ),
     );
@@ -365,6 +369,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         // Phase 3: hazard pins layer.
         _buildHazardLayer(ref),
 
+        // Phase 5: family member live-location layer.
+        _buildFamilyLayer(ref),
+
+        // Phase 6: gas station price pins.
+        _buildGasLayer(ref),
+
+        // Phase 6: POI pins (restaurants, parking, etc.).
+        _buildPoiLayer(ref),
+
         // User position marker.
         if (position != null) _buildUserMarkerLayer(position),
       ],
@@ -396,6 +409,115 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           child: FamilyMemberMarker(member: member, location: loc),
         );
       }).whereType<Marker>().toList(),
+    );
+  }
+
+  /// Builds gas station price-bubble markers.
+  /// Hidden when the gas layer toggle is off or no stations are nearby.
+  Widget _buildGasLayer(WidgetRef ref) {
+    final bool enabled = ref.watch(gasLayerEnabledProvider);
+    if (!enabled) return const SizedBox.shrink();
+
+    final List<GasStation> stations =
+        ref.watch(nearbyGasStationsProvider).valueOrNull ?? <GasStation>[];
+    if (stations.isEmpty) return const SizedBox.shrink();
+
+    final GasStation? selected = ref.watch(selectedGasStationProvider);
+
+    return MarkerLayer(
+      markers: stations.map((GasStation station) {
+        final bool isSelected = selected?.id == station.id;
+        return Marker(
+          point: LatLng(station.latitude, station.longitude),
+          width: isSelected ? 88 : 72,
+          height: isSelected ? 48 : 40,
+          child: GasStationMarker(
+            station: station,
+            isSelected: isSelected,
+            onTap: () {
+              ref.read(selectedGasStationProvider.notifier).state =
+                  isSelected ? null : station;
+              if (!isSelected) {
+                showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => ReportGasPriceSheet(station: station),
+                );
+              }
+            },
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  /// Builds POI pin markers for all active categories.
+  /// Hidden when no categories are toggled on.
+  Widget _buildPoiLayer(WidgetRef ref) {
+    final Set<PoiCategory> active = ref.watch(activePoisProvider);
+    if (active.isEmpty) return const SizedBox.shrink();
+
+    final List<PointOfInterest> pois =
+        ref.watch(nearbyPoisProvider).valueOrNull ?? <PointOfInterest>[];
+    if (pois.isEmpty) return const SizedBox.shrink();
+
+    return MarkerLayer(
+      markers: pois.map((PointOfInterest poi) {
+        return Marker(
+          point: LatLng(poi.latitude, poi.longitude),
+          width: 44,
+          height: 52,
+          child: PoiMarker(
+            icon: poi.category.icon,
+            color: poi.category.color,
+            label: poi.displayName,
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => AlertDialog(
+                backgroundColor: const Color(0xFF1A1A2E),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                title: Text(
+                  poi.displayName,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(children: <Widget>[
+                      Icon(poi.category.icon,
+                          color: poi.category.color, size: 16),
+                      const SizedBox(width: 6),
+                      Text(poi.category.label,
+                          style: const TextStyle(color: Colors.white70)),
+                    ]),
+                    if (poi.address != null) ...<Widget>[
+                      const SizedBox(height: 6),
+                      Text(poi.address!,
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 12)),
+                    ],
+                    if (poi.openingHours != null) ...<Widget>[
+                      const SizedBox(height: 4),
+                      Text('Hours: ${poi.openingHours}',
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 12)),
+                    ],
+                  ],
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 

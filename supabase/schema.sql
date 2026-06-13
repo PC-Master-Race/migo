@@ -752,3 +752,41 @@ create policy "family_locations: own row delete"
 -- Index for fast group-based queries (the Realtime stream filters by group_id).
 create index if not exists idx_family_locations_group
   on public.family_locations (group_id, expires_at);
+
+-- ============================================================
+-- TABLE: gas_prices
+-- Community-reported fuel prices per station and grade.
+-- Modeled after Waze fuel prices: no third-party feed,
+-- all data stays in Supabase, reporter ID never shown to others.
+-- ============================================================
+create table public.gas_prices (
+  id              uuid primary key default uuid_generate_v4(),
+  -- OSM node ID of the gas station (from Overpass query).
+  station_id      text not null,
+  -- Who reported this price — used ONLY to award Bravos, never shown to others.
+  reporter_id     uuid not null references auth.users(id) on delete cascade,
+  -- Fuel grade reported.
+  fuel_grade      text not null check (fuel_grade in ('regular','midgrade','premium','diesel')),
+  -- Price in USD per gallon. Validated client-side: $0.50–$15.00.
+  price_per_gallon numeric(5,3) not null check (price_per_gallon between 0.50 and 15.00),
+  -- When this price was reported.
+  reported_at     timestamptz not null default now()
+);
+
+alter table public.gas_prices enable row level security;
+
+-- Any authenticated user can read gas prices (community transparency).
+create policy "gas_prices: authenticated read"
+  on public.gas_prices
+  for select
+  using (auth.role() = 'authenticated');
+
+-- Users can only insert their own price reports.
+create policy "gas_prices: own insert"
+  on public.gas_prices
+  for insert
+  with check (auth.uid() = reporter_id);
+
+-- Index for fast station-based lookups (merged with Overpass data).
+create index if not exists idx_gas_prices_station
+  on public.gas_prices (station_id, reported_at desc);
