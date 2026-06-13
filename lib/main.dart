@@ -13,6 +13,7 @@ import 'screens/route_options_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/supabase_service.dart';
+import 'services/bravo_service.dart';
 import 'services/tts_service.dart';
 import 'theme/bravo_theme.dart';
 
@@ -29,6 +30,10 @@ Future<void> main() async {
 
   // Backend second — safe to call offline; Supabase queues until reachable.
   await SupabaseService.initialize();
+
+  // Init BravoService — loads already-earned achievements so we don't re-award.
+  final String? uid = SupabaseService.client.auth.currentSession?.user.id;
+  if (uid != null) unawaited(BravoService.instance.init(uid));
 
   // Warm up the TTS singleton so the first navigation instruction has no
   // perceptible delay. Fire-and-forget; errors inside TtsService are silent.

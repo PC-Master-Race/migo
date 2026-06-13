@@ -414,13 +414,26 @@ create unique index idx_user_reports_spam_guard
 -- players discover them organically (Phase 4).
 -- ============================================================
 create table public.achievements (
-  id            uuid primary key default uuid_generate_v4(),
-  user_id       uuid not null references public.users(id) on delete cascade,
+  id              uuid primary key default uuid_generate_v4(),
+  user_id         uuid not null references public.users(id) on delete cascade,
   -- Achievement identifier (e.g. "first_alpr_report", "secret_night_owl").
   achievement_key text not null,
   -- Human-readable title shown in the UI.
-  title         text not null,
-  -- Description shown after unlock. NULL for secret achievem
+  title           text not null,
+  -- Description shown after unlock. NULL for secret achievements until earned.
+  description     text,
+  unlocked_at     timestamptz not null default now(),
+  unique (user_id, achievement_key)
+);
+
+alter table public.achievements enable row level security;
+
+create policy "achievements: own only"
+  on public.achievements
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
 -- ============================================================
 -- RPC: increment_hazard_confirmed
 -- Called after a user casts a "still there" vote.
@@ -490,16 +503,118 @@ begin
     -- If enough people say it's gone, expire it immediately.
     expires_at      = case
                         when (dismissed_votes + 1) >= v_threshold
-                        then now()
-                        else expires_at
-                      end
-  where id = hazard_id;
+                     
+-- ============================================================
+-- PHASE 4: Archetype, Bravos, Achievements, Cosmetics
+-- ============================================================
 
-  if not found then
-    raise exception 'Hazard not found: %', hazard_id;
+-- TABLE: archetype_profiles
+-- One row per user. Recalculated at the end of each driving session.
+-- ============================================================
+create table if not exists public.archetype_profiles (
+  user_id           uuid primary key references public.users(id) on delete cascade,
+  current_archetype text not null default 'zenMaster',
+  scores            jsonb not null default '{}',
+  rare_archetype    text,
+  badges            jsonb not null default '[]',
+  session_count     integer not null default 0,
+  consecutive_days  integer not null default 0,
+  updated_at        timestamptz default now()
+);
+
+alter table public.archetype_profiles enable row level security;
+
+create policy "archetype_profiles: own only"
+  on public.archetype_profiles
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- TABLE: bravos_balance
+-- Current Bravos balance + lifetime total per user.
+-- ============================================================
+create table if not exists public.bravos_balance (
+  user_id         uuid primary key references public.users(id) on delete cascade,
+  balance         integer not null default 0,
+  lifetime_earned integer not null default 0,
+  updated_at      timestamptz default now()
+);
+
+alter table public.bravos_balance enable row level security;
+
+create policy "bravos_balance: own only"
+  on public.bravos_balance
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- TABLE: achievements_earned
+-- Each row is one achievement unlock for one user.
+-- ============================================================
+create table if not exists public.achievements_earned (
+  id              uuid primary key default uuid_generate_v4(),
+  user_id         uuid not null references public.users(id) on delete cascade,
+  achievement_id  text not null,
+  bravos_awarded  integer not null default 0,
+  earned_at       timestamptz not null default now(),
+  unique (user_id, achievement_id)
+);
+
+alter table public.achievements_earned enable row level security;
+
+create policy "achievements_earned: own only"
+  on public.achievements_earned
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- TABLE: cosmetics_unlocked
+-- Cosmetics the user has earned. is_equipped = user opted in to display.
+-- ============================================================
+create table if not exists public.cosmetics_unlocked (
+  id           uuid primary key default uuid_generate_v4(),
+  user_id      uuid not null references public.users(id) on delete cascade,
+  cosmetic_id  text not null,
+  unlocked_at  timestamptz not null default now(),
+  is_equipped  boolean not null default false,
+  unique (user_id, cosmetic_id)
+);
+
+alter table public.cosmetics_unlocked enable row level security;
+
+create policy "cosmetics_unlocked: own only"
+  on public.cosmetics_unlocked
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- ============================================================
+-- RPC: increment_bravos
+-- Atomically increments both balance and lifetime_earned.
+-- Creates the row if it doesn't exist yet (first earn).
+-- ============================================================
+create or replace function public.increment_bravos(p_user_id uuid, p_amount int)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
   end if;
+  if auth.uid() != p_user_id then
+    raise exception 'Cannot modify another user''s Bravos balance';
+  end if;
+
+  insert into public.bravos_balance (user_id, balance, lifetime_earned, updated_at)
+  values (p_user_id, p_amount, p_amount, now())
+  on conflict (user_id) do update
+    set balance         = bravos_balance.balance + p_amount,
+        lifetime_earned = bravos_balance.lifetime_earned + p_amount,
+        updated_at      = now();
 end;
 $$;
 
-revoke all on function public.increment_hazard_dismissed(uuid) from public;
-grant execute on function public.increment_hazard_dismissed(uuid) to a
+revoke all on function public.increment_bravos(uuid, int) from public;
+grant execute on function public.increment_bravos(uuid, int) to authenticated;
