@@ -152,8 +152,11 @@ class _PrivacyPage extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const _PageHeader(emoji: 'đź"'', title: 'Your data,\nyour rules.',
-              subtitle: 'We built Bravo Maps around one simple promise:'),
+          const _PageHeader(
+            emoji: "\u{1F512}",
+            title: 'Your data,\nyour rules.',
+            subtitle: 'We built Bravo Maps around one simple promise:',
+          ),
           const SizedBox(height: 32),
           const _PrivacyItem(icon: Icons.block_rounded, color: migoCoral,
               title: 'No ad networks. Ever.',
@@ -161,7 +164,7 @@ class _PrivacyPage extends StatelessWidget {
           const SizedBox(height: 20),
           const _PrivacyItem(icon: Icons.sell_outlined, color: migoAmber,
               title: 'Your data is not for sale.',
-              body: 'We don\'t sell or share your data with third parties. Your routes stay with us.'),
+              body: "We don't sell or share your data with third parties. Your routes stay with us."),
           const SizedBox(height: 20),
           const _PrivacyItem(icon: Icons.shield_rounded, color: migoTeal,
               title: 'Insurance? Never.',
@@ -213,8 +216,11 @@ class _NamePage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          const _PageHeader(emoji: 'đź'‹', title: "What should we\ncall you?",
-              subtitle: 'Shown only to your family group. Change it anytime in Settings.'),
+          const _PageHeader(
+            emoji: "\u{1F44B}",
+            title: "What should we\ncall you?",
+            subtitle: 'Shown only to your family group. Change it anytime in Settings.',
+          ),
           const SizedBox(height: 36),
           TextField(
             controller: controller,
@@ -253,8 +259,11 @@ class _AvatarTeaserPage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          const _PageHeader(emoji: 'đźŹŽ', title: 'Drive to discover\nyour avatar.',
-              subtitle: 'Bravo Maps figures out your style and assigns your chibi character. Which will you be?'),
+          const _PageHeader(
+            emoji: "\u{1F3CE}",
+            title: 'Drive to discover\nyour avatar.',
+            subtitle: 'Bravo Maps figures out your style and assigns your chibi character. Which will you be?',
+          ),
           const SizedBox(height: 28),
           Wrap(
             alignment: WrapAlignment.center,
@@ -309,18 +318,18 @@ class _ReadyPage extends StatelessWidget {
           Text("You're all set!", style: Theme.of(context).textTheme.displaySmall?.copyWith(
               color: Colors.white, fontWeight: FontWeight.w900)),
           const SizedBox(height: 12),
-          Text('Report hazards. Earn Bravos. Keep your location to yourself.\n\nLet\'s go.',
+          Text("Report hazards. Earn Bravos. Keep your location to yourself.\n\nLet's go.",
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 16, height: 1.6)),
           const SizedBox(height: 48),
-          _PrimaryButton(label: "Let's drive! \U0001f697", onPressed: onFinish),
+          _PrimaryButton(label: "Let's drive! \u{1F697}", onPressed: onFinish),
         ],
       ),
     );
   }
 }
 
-// Shared
+// Shared widgets
 class _PageHeader extends StatelessWidget {
   const _PageHeader({required this.emoji, required this.title, required this.subtitle});
   final String emoji; final String title; final String subtitle;

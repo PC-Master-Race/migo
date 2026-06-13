@@ -8,10 +8,12 @@ import 'package:hive_ce/hive.dart';
 import '../constants.dart';
 import '../theme/bravo_theme.dart';
 import '../providers/settings_provider.dart';
+import '../providers/gas_poi_provider.dart';
+import '../services/map_service.dart'; // MapZoomMode
 import '../providers/map_provider.dart';
 
 const Color _bg     = Color(0xFF0D0D1A);
-const Color _card   = Color(0xFF161625);
+const Color _cardBg = Color(0xFF161625);
 const Color _divider = Color(0xFF252535);
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -220,7 +222,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _card(List<Widget> children) {
     return Container(
-      decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(14)),
+      decoration: BoxDecoration(color: _cardBg, borderRadius: BorderRadius.circular(14)),
       child: Column(children: children),
     );
   }

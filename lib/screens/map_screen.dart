@@ -25,6 +25,7 @@ import '../widgets/map_controls/recenter_button.dart';
 import 'route_options_screen.dart';
 import '../models/hazard_model.dart';
 import '../providers/hazard_provider.dart';
+import '../models/family_model.dart';
 import '../providers/family_provider.dart';
 import '../widgets/avatar/family_member_marker.dart';
 import '../models/poi_model.dart';
@@ -908,7 +909,11 @@ class _RouteOptionsButton extends StatelessWidget {
       elevation: 4,
       tooltip: 'Route options',
       onPressed: () => RouteOptionsScreen.showSheet(context),
-      child: con
+      child: const Icon(Icons.tune_rounded),
+    );
+  }
+}
+
 // --- REPORT HAZARD BUTTON ---
 
 class _ReportHazardButton extends StatelessWidget {
@@ -923,7 +928,7 @@ class _ReportHazardButton extends StatelessWidget {
       foregroundColor: Colors.white,
       elevation: 4,
       tooltip: 'Report hazard',
-      onPressed: () => ReportHazardScreen.showSheet(context),
+      onPressed: () => ReportHazardSheet.show(context),
       child: const Icon(Icons.warning_amber_rounded),
     );
   }
@@ -945,9 +950,4 @@ class _SettingsButton extends StatelessWidget {
         onTap: () => Navigator.of(context).pushNamed(SettingsScreen.routeName),
         child: const Padding(
           padding: EdgeInsets.all(8),
-          child: Icon(Icons.settings_rounded, color: Colors.white, size: 22),
-        ),
-      ),
-    );
-  }
-}
+          child: Icon(Icons.set

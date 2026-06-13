@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_ce/hive.dart';
 
 import '../constants.dart';
-import '../providers/map_provider.dart'; // MapZoomMode
+import '../services/map_service.dart'; // MapZoomMode
 
 // ---------------------------------------------------------------------------
 // Settings keys
