@@ -187,6 +187,30 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return (base * scale).clamp(30.0, 80.0);
   }
 
+  /// Returns only the part of [waypoints] AHEAD of the user. The already-driven
+  /// portion is trimmed so the route line never trails behind the avatar. The
+  /// user's live position is prepended so the line connects to the car.
+  List<LatLng> _remainingRoute(List<LatLng> waypoints, Position? position) {
+    if (position == null || waypoints.length < 2) return waypoints;
+    final LatLng me = LatLng(position.latitude, position.longitude);
+
+    // Find the nearest waypoint to the user — that's where "ahead" begins.
+    const Distance dist = Distance();
+    int nearest = 0;
+    double best = double.infinity;
+    for (int i = 0; i < waypoints.length; i++) {
+      final double d = dist.as(LengthUnit.Meter, me, waypoints[i]);
+      if (d < best) {
+        best = d;
+        nearest = i;
+      }
+    }
+
+    final List<LatLng> ahead =
+        waypoints.sublist((nearest + 1).clamp(0, waypoints.length));
+    return <LatLng>[me, ...ahead];
+  }
+
   // --- SAVED LOCATIONS ---
 
   /// Navigate to a saved place exactly like selecting a search result.
@@ -419,10 +443,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: const SpeedHud(),
           ),
 
-          // Report hazard FAB.
+          // Report hazard FAB — bottom-right, above the Bravos chip, so the
+          // speedometer owns the bottom-left and the mph is never blocked.
           Positioned(
-            bottom: routeBarH + 100,
-            left: 16,
+            bottom: routeBarH + 148,
+            right: 16,
             child: _ReportHazardButton(context: context),
           ),
 
@@ -512,14 +537,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ],
         _buildCartoonTintOverlay(zoomMode),
 
-        // Route polyline (below user marker so the dot stays on top).
+        // Route polyline — only the REMAINING portion ahead of the user is
+        // drawn; the part already driven is trimmed away so it doesn't linger
+        // behind the avatar. Bright green + thick for at-a-glance visibility.
         if (route != null && route.waypoints.isNotEmpty)
           PolylineLayer(
             polylines: <Polyline>[
               Polyline(
-                points: route.waypoints,
+                points: _remainingRoute(route.waypoints, position),
                 strokeWidth: routePolylineWidthDp,
-                color: migoTeal,
+                color: migoRouteGreen,
                 borderStrokeWidth: 1.5,
                 borderColor: Colors.white.withValues(alpha: 0.6),
               ),

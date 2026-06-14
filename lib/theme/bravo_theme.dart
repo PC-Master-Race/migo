@@ -48,6 +48,10 @@ const Color migoDanger = Color(0xFFE63946);
 /// distinct from danger red: ALPR alerts are "ominous/subtle", not urgent.
 const Color migoPlum = Color(0xFF6D4C7D);
 
+/// Active route line — bright lime green for high visibility on the map, the
+/// convention drivers expect from navigation tools.
+const Color migoRouteGreen = Color(0xFF2BE84A);
+
 // --- THEME BUILDER ---
 
 /// Builds the app-wide [ThemeData] from the Migo palette and typography.

@@ -95,8 +95,10 @@ const double metersPerSecondToMph = 2.23694;
 // --- LOCATION TRACKING ---
 
 /// Minimum movement (meters) before a new GPS position event fires.
-/// 5 m balances battery use against smooth avatar movement on the map.
-const int locationDistanceFilterMeters = 5;
+/// 3 m gives more frequent fixes so the avatar hops in smaller steps. The real
+/// smoothness fix is position interpolation between fixes (see TODO in the
+/// user marker) — this just reduces the gap between raw updates.
+const int locationDistanceFilterMeters = 3;
 
 /// Speeds below this (mph) display as 0 on the HUD — raw GPS jitter while
 /// standing still otherwise shows phantom 1–2 mph readings.
@@ -237,8 +239,9 @@ const int maneuverAlertDistanceMeters = 200;
 /// 25 m ≈ passing through the intersection.
 const double stepAdvanceRadiusMeters = 25.0;
 
-/// Stroke width (dp) for the route polyline drawn on the map.
-const double routePolylineWidthDp = 6.0;
+/// Stroke width (dp) for the route polyline drawn on the map. Thick + bright
+/// green (see migoRouteGreen) so it's easy to follow at a glance while driving.
+const double routePolylineWidthDp = 9.0;
 
 /// Valhalla costing model used for all car routing. 'auto' applies road-class
 /// and turn penalties appropriate for a typical passenger vehicle.
