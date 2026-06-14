@@ -170,7 +170,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 10),
                 _ChipRow<MapZoomMode>(
-                  values: MapZoomMode.values,
+                  // Street/satellite mode is disabled for now (see
+                  // MapService.zoomModeForLevel) — only offer cartoon + hybrid.
+                  values: MapZoomMode.values
+                      .where((MapZoomMode m) => m != MapZoomMode.street)
+                      .toList(),
                   current: ref.watch(defaultZoomModeProvider),
                   label: (MapZoomMode v) => v.name[0].toUpperCase() + v.name.substring(1),
                   onSelect: (MapZoomMode v) => ref.read(defaultZoomModeProvider.notifier).set(v),

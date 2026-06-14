@@ -182,7 +182,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     const double base = 60.0;
     const double refZoom = 15.0;
     final double scale = math.pow(1.4, zoom - refZoom).toDouble();
-    return (base * scale).clamp(30.0, 100.0);
+    // Lower cap (80) keeps the close-up avatar from getting huge; the 30 floor
+    // keeps far-away sizing unchanged. Tune the 80 down (e.g. 70) if still big.
+    return (base * scale).clamp(30.0, 80.0);
   }
 
   // --- SAVED LOCATIONS ---

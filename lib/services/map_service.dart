@@ -63,10 +63,17 @@ enum MapZoomMode {
 /// Also provides the Overpass-based speed limit lookup used by the HUD.
 class MapService {
   /// Returns the [MapZoomMode] for [zoomLevel] using thresholds in constants.dart.
+  ///
+  /// SATELLITE/STREET MODE IS CURRENTLY DISABLED: the cartoon aesthetic is the
+  /// whole point of the app, and the satellite↔cartoon tile swap broke
+  /// immersion. We cap at hybrid so the map always renders the warm OSM cartoon
+  /// look (cartoon far out, hybrid up close) and avatars stay visible at every
+  /// zoom. All the satellite machinery below is intentionally left intact so a
+  /// real street-level mode can be re-enabled later — just restore the
+  /// `> hybridModeMaxZoom → MapZoomMode.street` line here.
   static MapZoomMode zoomModeForLevel(double zoomLevel) {
     if (zoomLevel <= cartoonModeMaxZoom) return MapZoomMode.cartoon;
-    if (zoomLevel <= hybridModeMaxZoom) return MapZoomMode.hybrid;
-    return MapZoomMode.street;
+    return MapZoomMode.hybrid;
   }
 
   /// Returns the tile URL template for [mode].
