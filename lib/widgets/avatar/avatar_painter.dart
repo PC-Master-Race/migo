@@ -22,6 +22,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../models/archetype_model.dart';
+import '../../models/bravo_model.dart';
 import '../../theme/bravo_theme.dart';
 
 // ---------------------------------------------------------------------------
@@ -200,13 +201,15 @@ const Map<RareArchetype, _ArchetypeConfig> _kRareConfigs =
 /// Paints a chibi avatar on a 64×80 canvas.
 /// [archetype] drives the visual config.
 /// [carColorOverride] lets the user's real car color replace the default.
-/// [earnedAccessory] is an optional POI-earned cosmetic painted on top.
+/// [rareArchetype] overrides the look entirely when a rare type is unlocked.
+/// [equippedCosmetic] is the unlockable the user chose to display (visible to
+/// anyone who sees this avatar — that's the point of the reward system).
 class AvatarPainter extends CustomPainter {
   const AvatarPainter({
     required this.archetype,
     this.rareArchetype,
     this.carColorOverride,
-    this.earnedAccessory,
+    this.equippedCosmetic,
     this.showAura = true,
   });
 
@@ -215,7 +218,10 @@ class AvatarPainter extends CustomPainter {
   /// When set, overrides [archetype] with a special rare look.
   final RareArchetype? rareArchetype;
   final Color? carColorOverride;
-  final _AccessoryType? earnedAccessory;
+
+  /// The unlockable the user has chosen to display (null = none). Only ever
+  /// passed when the user equipped it — unlocking alone never shows it.
+  final CosmeticId? equippedCosmetic;
   final bool showAura;
 
   @override
@@ -259,11 +265,11 @@ class AvatarPainter extends CustomPainter {
       _drawAccessoryA(canvas, headCenter, headRadius, cfg.accessoryA);
     }
 
-    // ── 7. Earned POI overlay ─────────────────────────────────────────────
-    if (earnedAccessory != null &&
-        earnedAccessory != _AccessoryType.none &&
-        earnedAccessory != cfg.accessoryA) {
-      _drawAccessoryA(canvas, headCenter, headRadius, earnedAccessory!);
+    // ── 7. Equipped cosmetic overlay (unlockable badge near the head) ──────
+    // Only drawn when the user equipped it — visible to everyone who sees the
+    // avatar, which is the whole point of the reward system.
+    if (equippedCosmetic != null) {
+      _drawCosmetic(canvas, headCenter, headRadius, equippedCosmetic!);
     }
   }
 
@@ -939,12 +945,310 @@ class AvatarPainter extends CustomPainter {
     canvas.drawPath(p, paint);
   }
 
+  // ── Equipped cosmetic (unlockable) ────────────────────────────────────────
+  // Drawn as a small emblem at the upper-right of the head — uniform placement
+  // so all 15 unlockables read clearly as a worn pin/badge, on a white backing
+  // so they stay legible against any car/head color.
+
+  void _drawCosmetic(Canvas canvas, Offset head, double r, CosmeticId id) {
+    final Offset c = Offset(head.dx + r * 0.72, head.dy - r * 0.72);
+    final double s = r * 0.62; // emblem size
+
+    // White badge backing for contrast.
+    canvas.drawCircle(c, s * 0.62, Paint()..color = Colors.white);
+    canvas.drawCircle(
+      c,
+      s * 0.62,
+      Paint()
+        ..color = Colors.black26
+        ..strokeWidth = 1.0
+        ..style = PaintingStyle.stroke,
+    );
+
+    switch (id) {
+      case CosmeticId.phoBowl:
+        _emblemBowl(canvas, c, s, const Color(0xFF8D6E63)); // brown broth
+      case CosmeticId.ramenBowl:
+        _emblemBowl(canvas, c, s, const Color(0xFFFFB300)); // golden broth
+      case CosmeticId.coffeeCup:
+        _emblemCoffee(canvas, c, s);
+      case CosmeticId.tacoHat:
+        _emblemTaco(canvas, c, s);
+      case CosmeticId.burgerBun:
+        _emblemBurger(canvas, c, s);
+      case CosmeticId.lipstickCrown:
+        _emblemCrown(canvas, c, s, const Color(0xFFEC407A));
+      case CosmeticId.musicNote:
+        _emblemNote(canvas, c, s);
+      case CosmeticId.popcornBucket:
+        _emblemPopcorn(canvas, c, s);
+      case CosmeticId.dumbbellPin:
+        _emblemDumbbell(canvas, c, s);
+      case CosmeticId.tinyBook:
+        _emblemBook(canvas, c, s);
+      case CosmeticId.vinylDisc:
+        _emblemVinyl(canvas, c, s);
+      case CosmeticId.streakFlamePin:
+        _emblemFlame(canvas, c, s);
+      case CosmeticId.goldClock:
+        _emblemClock(canvas, c, s);
+      case CosmeticId.shieldBadge:
+        _emblemShield(canvas, c, s);
+      case CosmeticId.founderStar:
+        _emblemStar(canvas, c, s, const Color(0xFFFFD700));
+    }
+  }
+
+  // Bowl (pho/ramen) — half-disc of broth + rising steam.
+  void _emblemBowl(Canvas canvas, Offset c, double s, Color broth) {
+    canvas.drawArc(
+      Rect.fromCenter(
+          center: Offset(c.dx, c.dy + s * 0.08),
+          width: s * 0.85,
+          height: s * 0.55),
+      0,
+      math.pi,
+      true,
+      Paint()..color = broth,
+    );
+    _emblemSteam(canvas, c, s);
+  }
+
+  void _emblemSteam(Canvas canvas, Offset c, double s) {
+    final Paint p = Paint()
+      ..color = Colors.black26
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(c.dx - s * 0.14, c.dy - s * 0.12),
+        Offset(c.dx - s * 0.14, c.dy - s * 0.40), p);
+    canvas.drawLine(Offset(c.dx + s * 0.14, c.dy - s * 0.12),
+        Offset(c.dx + s * 0.14, c.dy - s * 0.40), p);
+  }
+
+  // Coffee cup — body + handle + steam.
+  void _emblemCoffee(Canvas canvas, Offset c, double s) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromCenter(center: c, width: s * 0.5, height: s * 0.55),
+          const Radius.circular(2)),
+      Paint()..color = const Color(0xFF6D4C41),
+    );
+    canvas.drawCircle(
+      Offset(c.dx + s * 0.34, c.dy),
+      s * 0.12,
+      Paint()
+        ..color = const Color(0xFF6D4C41)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke,
+    );
+    _emblemSteam(canvas, c, s);
+  }
+
+  // Taco — folded golden shell with a green filling line.
+  void _emblemTaco(Canvas canvas, Offset c, double s) {
+    canvas.drawArc(
+      Rect.fromCenter(center: c, width: s * 0.85, height: s * 0.85),
+      math.pi,
+      math.pi,
+      true,
+      Paint()..color = const Color(0xFFFFC107),
+    );
+    canvas.drawArc(
+      Rect.fromCenter(
+          center: Offset(c.dx, c.dy - s * 0.02),
+          width: s * 0.7,
+          height: s * 0.5),
+      math.pi,
+      math.pi,
+      false,
+      Paint()
+        ..color = const Color(0xFF66BB6A)
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke,
+    );
+  }
+
+  // Burger — top bun, patty, bottom bun.
+  void _emblemBurger(Canvas canvas, Offset c, double s) {
+    canvas.drawArc(
+      Rect.fromCenter(
+          center: Offset(c.dx, c.dy - s * 0.16),
+          width: s * 0.8,
+          height: s * 0.5),
+      math.pi,
+      math.pi,
+      true,
+      Paint()..color = const Color(0xFFE0A35A),
+    );
+    canvas.drawRect(
+      Rect.fromCenter(center: c, width: s * 0.8, height: s * 0.16),
+      Paint()..color = const Color(0xFF6D4C41),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromCenter(
+              center: Offset(c.dx, c.dy + s * 0.2),
+              width: s * 0.8,
+              height: s * 0.22),
+          const Radius.circular(3)),
+      Paint()..color = const Color(0xFFE0A35A),
+    );
+  }
+
+  // Small 3-point crown in [color].
+  void _emblemCrown(Canvas canvas, Offset c, double s, Color color) {
+    final double y = c.dy + s * 0.22;
+    final Path p = Path()
+      ..moveTo(c.dx - s * 0.4, y)
+      ..lineTo(c.dx - s * 0.4, y - s * 0.45)
+      ..lineTo(c.dx - s * 0.18, y - s * 0.2)
+      ..lineTo(c.dx, y - s * 0.5)
+      ..lineTo(c.dx + s * 0.18, y - s * 0.2)
+      ..lineTo(c.dx + s * 0.4, y - s * 0.45)
+      ..lineTo(c.dx + s * 0.4, y)
+      ..close();
+    canvas.drawPath(p, Paint()..color = color);
+  }
+
+  // Music note — head + stem + flag.
+  void _emblemNote(Canvas canvas, Offset c, double s) {
+    final Paint p = Paint()..color = const Color(0xFF5E35B1);
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: Offset(c.dx - s * 0.12, c.dy + s * 0.22),
+          width: s * 0.32,
+          height: s * 0.24),
+      p,
+    );
+    canvas.drawRect(Rect.fromLTWH(c.dx + s * 0.02, c.dy - s * 0.35, s * 0.08, s * 0.57), p);
+    canvas.drawRect(Rect.fromLTWH(c.dx + s * 0.02, c.dy - s * 0.35, s * 0.22, s * 0.10), p);
+  }
+
+  // Popcorn — red tub + popped kernels.
+  void _emblemPopcorn(Canvas canvas, Offset c, double s) {
+    final Path tub = Path()
+      ..moveTo(c.dx - s * 0.3, c.dy - s * 0.1)
+      ..lineTo(c.dx - s * 0.4, c.dy + s * 0.4)
+      ..lineTo(c.dx + s * 0.4, c.dy + s * 0.4)
+      ..lineTo(c.dx + s * 0.3, c.dy - s * 0.1)
+      ..close();
+    canvas.drawPath(tub, Paint()..color = const Color(0xFFE53935));
+    for (final double dx in <double>[-0.18, 0.0, 0.18]) {
+      canvas.drawCircle(Offset(c.dx + s * dx, c.dy - s * 0.2), s * 0.12,
+          Paint()..color = const Color(0xFFFFF59D));
+    }
+  }
+
+  // Dumbbell — bar + two weights.
+  void _emblemDumbbell(Canvas canvas, Offset c, double s) {
+    final Paint p = Paint()..color = const Color(0xFF455A64);
+    canvas.drawRect(
+        Rect.fromCenter(center: c, width: s * 0.7, height: s * 0.12), p);
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromCenter(
+                center: Offset(c.dx - s * 0.34, c.dy),
+                width: s * 0.14,
+                height: s * 0.5),
+            const Radius.circular(2)),
+        p);
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromCenter(
+                center: Offset(c.dx + s * 0.34, c.dy),
+                width: s * 0.14,
+                height: s * 0.5),
+            const Radius.circular(2)),
+        p);
+  }
+
+  // Book — cover + center page line.
+  void _emblemBook(Canvas canvas, Offset c, double s) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromCenter(center: c, width: s * 0.6, height: s * 0.72),
+          const Radius.circular(2)),
+      Paint()..color = const Color(0xFF8E24AA),
+    );
+    canvas.drawLine(Offset(c.dx, c.dy - s * 0.32), Offset(c.dx, c.dy + s * 0.32),
+        Paint()..color = Colors.white..strokeWidth = 1.0);
+  }
+
+  // Vinyl record — black disc, colored label, center hole.
+  void _emblemVinyl(Canvas canvas, Offset c, double s) {
+    canvas.drawCircle(c, s * 0.42, Paint()..color = const Color(0xFF212121));
+    canvas.drawCircle(c, s * 0.16, Paint()..color = const Color(0xFFEF5350));
+    canvas.drawCircle(c, s * 0.04, Paint()..color = Colors.white);
+  }
+
+  // Flame — teardrop.
+  void _emblemFlame(Canvas canvas, Offset c, double s) {
+    final Path f = Path()
+      ..moveTo(c.dx, c.dy - s * 0.42)
+      ..quadraticBezierTo(c.dx + s * 0.34, c.dy, c.dx + s * 0.16, c.dy + s * 0.3)
+      ..quadraticBezierTo(c.dx, c.dy + s * 0.46, c.dx - s * 0.16, c.dy + s * 0.3)
+      ..quadraticBezierTo(c.dx - s * 0.34, c.dy, c.dx, c.dy - s * 0.42)
+      ..close();
+    canvas.drawPath(f, Paint()..color = const Color(0xFFFF7043));
+  }
+
+  // Clock — gold face + hands.
+  void _emblemClock(Canvas canvas, Offset c, double s) {
+    canvas.drawCircle(c, s * 0.4, Paint()..color = const Color(0xFFFFD700));
+    canvas.drawCircle(
+        c,
+        s * 0.4,
+        Paint()
+          ..color = const Color(0xFF6D4C00)
+          ..strokeWidth = 1.5
+          ..style = PaintingStyle.stroke);
+    final Paint h = Paint()
+      ..color = const Color(0xFF3E2723)
+      ..strokeWidth = 1.5;
+    canvas.drawLine(c, Offset(c.dx, c.dy - s * 0.26), h);
+    canvas.drawLine(c, Offset(c.dx + s * 0.18, c.dy), h);
+  }
+
+  // Shield — badge silhouette.
+  void _emblemShield(Canvas canvas, Offset c, double s) {
+    final Path sh = Path()
+      ..moveTo(c.dx, c.dy - s * 0.4)
+      ..lineTo(c.dx + s * 0.34, c.dy - s * 0.24)
+      ..lineTo(c.dx + s * 0.28, c.dy + s * 0.2)
+      ..lineTo(c.dx, c.dy + s * 0.44)
+      ..lineTo(c.dx - s * 0.28, c.dy + s * 0.2)
+      ..lineTo(c.dx - s * 0.34, c.dy - s * 0.24)
+      ..close();
+    canvas.drawPath(sh, Paint()..color = const Color(0xFF42A5F5));
+  }
+
+  // Five-point star in [color].
+  void _emblemStar(Canvas canvas, Offset c, double s, Color color) {
+    final Path star = Path();
+    for (int i = 0; i < 5; i++) {
+      final double outer = -math.pi / 2 + i * 2 * math.pi / 5;
+      final double inner = outer + math.pi / 5;
+      final Offset po =
+          Offset(c.dx + math.cos(outer) * s * 0.42, c.dy + math.sin(outer) * s * 0.42);
+      final Offset pin =
+          Offset(c.dx + math.cos(inner) * s * 0.18, c.dy + math.sin(inner) * s * 0.18);
+      if (i == 0) {
+        star.moveTo(po.dx, po.dy);
+      } else {
+        star.lineTo(po.dx, po.dy);
+      }
+      star.lineTo(pin.dx, pin.dy);
+    }
+    star.close();
+    canvas.drawPath(star, Paint()..color = color);
+  }
+
   @override
   bool shouldRepaint(AvatarPainter old) =>
       old.archetype != archetype ||
       old.rareArchetype != rareArchetype ||
       old.carColorOverride != carColorOverride ||
-      old.earnedAccessory != earnedAccessory;
+      old.equippedCosmetic != equippedCosmetic;
 }
 
 // ---------------------------------------------------------------------------
@@ -960,7 +1264,7 @@ class AvatarWidget extends StatelessWidget {
     this.rareArchetype,
     this.size = 80.0,
     this.carColorOverride,
-    this.earnedAccessory,
+    this.equippedCosmetic,
   });
 
   final DrivingArchetype archetype;
@@ -969,7 +1273,9 @@ class AvatarWidget extends StatelessWidget {
   final RareArchetype? rareArchetype;
   final double size;
   final Color? carColorOverride;
-  final _AccessoryType? earnedAccessory;
+
+  /// The unlockable the user chose to display (null = none).
+  final CosmeticId? equippedCosmetic;
 
   @override
   Widget build(BuildContext context) {
@@ -981,7 +1287,7 @@ class AvatarWidget extends StatelessWidget {
           archetype: archetype,
           rareArchetype: rareArchetype,
           carColorOverride: carColorOverride,
-          earnedAccessory: earnedAccessory,
+          equippedCosmetic: equippedCosmetic,
         ),
       ),
     );

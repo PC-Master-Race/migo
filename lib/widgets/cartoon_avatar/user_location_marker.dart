@@ -53,7 +53,8 @@ class UserLocationMarker extends ConsumerWidget {
               // When a rare archetype is unlocked it overrides the look.
               rareArchetype: profile.rareArchetype,
               size: size,
-              earnedAccessory: _cosmeticToAccessory(equipped?.cosmeticId),
+              // Show the unlockable the user has equipped (null = none).
+              equippedCosmetic: equipped?.cosmeticId,
             );
           },
         );
@@ -73,14 +74,6 @@ class UserLocationMarker extends ConsumerWidget {
           ],
         ),
       );
-
-  /// Maps a CosmeticId to the _AccessoryType the AvatarPainter understands.
-  /// This keeps the model layer decoupled from the painter internals.
-  // ignore: library_private_types_in_public_api — acceptable for this internal mapping
-  dynamic _cosmeticToAccessory(CosmeticId? id) {
-    // Returning null means "no earned overlay" — the archetype accessory shows.
-    return null; // Phase 4b: map CosmeticId → _AccessoryType when painter is extended
-  }
 }
 
 // ---------------------------------------------------------------------------
