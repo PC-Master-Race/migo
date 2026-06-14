@@ -33,6 +33,7 @@ import '../providers/settings_provider.dart';
 import '../services/map_service.dart';
 import '../theme/bravo_theme.dart';
 import '../widgets/cartoon_avatar/user_location_marker.dart';
+import '../widgets/cartoon_avatar/smooth_user_marker_layer.dart';
 import '../widgets/hud/speed_hud.dart';
 import '../widgets/map_controls/recenter_button.dart';
 import 'route_options_screen.dart';
@@ -224,9 +225,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ref.read(activeRouteProvider.notifier).calculate(
             destination: loc.position,
           );
+      // Focus on the START (the user), not the destination — navigation should
+      // begin from where you are. Resume following so the map tracks you.
+      _mapController.move(LatLng(pos.latitude, pos.longitude), mapFirstFixZoom);
+      setState(() => _isFollowingUser = true);
+    } else {
+      // No GPS fix yet — fall back to showing the destination.
+      _mapController.move(loc.position, 14.0);
+      setState(() => _isFollowingUser = false);
     }
-    _mapController.move(loc.position, 14.0);
-    setState(() => _isFollowingUser = false);
   }
 
   /// Shows a bottom sheet where the user can save [result] as Home/Work/Favorite.
@@ -300,10 +307,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ref.read(activeRouteProvider.notifier).calculate(
             destination: result.position,
           );
+      // Focus on the START (the user), not the destination — navigation should
+      // begin from where you are. Resume following so the map tracks you.
+      _mapController.move(LatLng(pos.latitude, pos.longitude), mapFirstFixZoom);
+      setState(() => _isFollowingUser = true);
+    } else {
+      // No GPS fix yet — fall back to showing the destination.
+      _mapController.move(result.position, 14.0);
+      setState(() => _isFollowingUser = false);
     }
-
-    _mapController.move(result.position, 14.0);
-    setState(() => _isFollowingUser = false);
   }
 
   void _clearSearch() {
@@ -571,7 +583,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         _buildGasLayer(ref),
         _buildPoiLayer(ref),
 
-        if (position != null) _buildUserMarkerLayer(position),
+        // Smoothed (gliding) user marker — handles its own GPS + animation.
+        const SmoothUserMarkerLayer(),
       ],
     );
   }
@@ -731,21 +744,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  Widget _buildUserMarkerLayer(Position position) {
-    final double zoom = ref.watch(currentZoomProvider);
-    final double sz = _markerSizeForZoom(zoom);
-    return MarkerLayer(
-      markers: <Marker>[
-        Marker(
-          point: LatLng(position.latitude, position.longitude),
-          width: sz,
-          height: sz,
-          rotate: true,
-          child: const UserLocationMarker(),
-        ),
-      ],
-    );
-  }
+  // The user marker layer now lives in SmoothUserMarkerLayer (it animates the
+  // marker between GPS fixes so the avatar glides instead of hopping).
 
   Widget _buildCartoonTintOverlay(MapZoomMode zoomMode) {
     final double opacity = switch (zoomMode) {
