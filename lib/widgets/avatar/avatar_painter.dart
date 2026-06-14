@@ -210,6 +210,7 @@ class AvatarPainter extends CustomPainter {
     this.rareArchetype,
     this.carColorOverride,
     this.equippedCosmetic,
+    this.bob = 0.0,
     this.showAura = true,
   });
 
@@ -222,6 +223,10 @@ class AvatarPainter extends CustomPainter {
   /// The unlockable the user has chosen to display (null = none). Only ever
   /// passed when the user equipped it — unlocking alone never shows it.
   final CosmeticId? equippedCosmetic;
+
+  /// Head-bob phase 0.0–1.0 (one full bounce cycle). Driven by AvatarWidget's
+  /// looping controller; 0.0 = no bob (static).
+  final double bob;
   final bool showAura;
 
   @override
@@ -250,7 +255,11 @@ class AvatarPainter extends CustomPainter {
 
     // ── 3. Head ───────────────────────────────────────────────────────────
     final double headRadius = w * 0.36; // ~23px on 64px canvas
-    final Offset headCenter = Offset(cx, h * 0.38);
+    // Head-bob: a smooth sine bounce (turntable-style). It shifts the head and
+    // everything attached to it (eyes, mouth, accessory, cosmetic); the car and
+    // aura stay planted, so it reads as the driver bobbing to a beat.
+    final double bobOffset = math.sin(bob * 2 * math.pi) * h * 0.045;
+    final Offset headCenter = Offset(cx, h * 0.38 + bobOffset);
     _drawHead(canvas, headCenter, headRadius, cfg.headColor);
 
     // ── 4. Eyes ───────────────────────────────────────────────────────────
@@ -1248,7 +1257,8 @@ class AvatarPainter extends CustomPainter {
       old.archetype != archetype ||
       old.rareArchetype != rareArchetype ||
       old.carColorOverride != carColorOverride ||
-      old.equippedCosmetic != equippedCosmetic;
+      old.equippedCosmetic != equippedCosmetic ||
+      old.bob != bob;
 }
 
 // ---------------------------------------------------------------------------
@@ -1257,7 +1267,7 @@ class AvatarPainter extends CustomPainter {
 
 /// A chibi avatar Widget.
 /// [size] is the long side (height). Width is 80% of height.
-class AvatarWidget extends StatelessWidget {
+class AvatarWidget extends StatefulWidget {
   const AvatarWidget({
     super.key,
     required this.archetype,
@@ -1265,6 +1275,7 @@ class AvatarWidget extends StatelessWidget {
     this.size = 80.0,
     this.carColorOverride,
     this.equippedCosmetic,
+    this.animate = true,
   });
 
   final DrivingArchetype archetype;
@@ -1277,18 +1288,61 @@ class AvatarWidget extends StatelessWidget {
   /// The unlockable the user chose to display (null = none).
   final CosmeticId? equippedCosmetic;
 
+  /// When true (default) the head gently bobs in a continuous loop.
+  final bool animate;
+
+  @override
+  State<AvatarWidget> createState() => _AvatarWidgetState();
+}
+
+class _AvatarWidgetState extends State<AvatarWidget>
+    with SingleTickerProviderStateMixin {
+  // One bob cycle ~1.1 s — a relaxed, musical bounce.
+  late final AnimationController _bob = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.animate) _bob.repeat();
+  }
+
+  @override
+  void didUpdateWidget(AvatarWidget old) {
+    super.didUpdateWidget(old);
+    if (widget.animate && !_bob.isAnimating) {
+      _bob.repeat();
+    } else if (!widget.animate && _bob.isAnimating) {
+      _bob.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _bob.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: size * 0.80,
-      height: size,
-      child: CustomPaint(
-        painter: AvatarPainter(
-          archetype: archetype,
-          rareArchetype: rareArchetype,
-          carColorOverride: carColorOverride,
-          equippedCosmetic: equippedCosmetic,
-        ),
+      width: widget.size * 0.80,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _bob,
+        builder: (BuildContext context, Widget? child) {
+          return CustomPaint(
+            painter: AvatarPainter(
+              archetype: widget.archetype,
+              rareArchetype: widget.rareArchetype,
+              carColorOverride: widget.carColorOverride,
+              equippedCosmetic: widget.equippedCosmetic,
+              bob: widget.animate ? _bob.value : 0.0,
+            ),
+          );
+        },
       ),
     );
   }
