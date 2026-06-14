@@ -50,6 +50,8 @@ class UserLocationMarker extends ConsumerWidget {
 
             return AvatarWidget(
               archetype: profile.currentArchetype,
+              // When a rare archetype is unlocked it overrides the look.
+              rareArchetype: profile.rareArchetype,
               size: size,
               earnedAccessory: _cosmeticToAccessory(equipped?.cosmeticId),
             );

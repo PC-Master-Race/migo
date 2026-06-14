@@ -62,6 +62,10 @@ enum _AccessoryType {
   zenHalo,
   spoiler, // car accessory — drawn on car layer
   crownSmall,
+  // Rare-archetype accessories (see _kRareConfigs).
+  creatureHorns,
+  goldHalo,
+  silkSparkle,
 }
 
 const Map<DrivingArchetype, _ArchetypeConfig> _kConfigs =
@@ -147,6 +151,49 @@ const Map<DrivingArchetype, _ArchetypeConfig> _kConfigs =
 };
 
 // ---------------------------------------------------------------------------
+// Rare archetype visual configs (secret unlocks — see RareArchetype).
+// When a profile has a rareArchetype set, it overrides the core look so the
+// reward feels special and unmistakable.
+// ---------------------------------------------------------------------------
+
+const Map<RareArchetype, _ArchetypeConfig> _kRareConfigs =
+    <RareArchetype, _ArchetypeConfig>{
+  // Creature of Habit — drove every day for 30 days. A friendly little
+  // green monster with horns, fangs (grin) and a green glow.
+  RareArchetype.creature: _ArchetypeConfig(
+    carColor: Color(0xFF2E7D32), // mossy green
+    headColor: Color(0xFF8BC34A), // creature green
+    eyeStyle: _EyeStyle.wide,
+    mouthStyle: _MouthStyle.grin,
+    accessoryA: _AccessoryType.creatureHorns,
+    accessoryB: _AccessoryType.none,
+    auraColor: Color(0x4476FF03), // green aura
+  ),
+  // Guardian — 50+ confirmed hazard reports. A watchful protector with a
+  // rich gold halo and a warm golden aura.
+  RareArchetype.guardian: _ArchetypeConfig(
+    carColor: Color(0xFF1565C0), // guardian blue
+    headColor: Color(0xFFFFCC99),
+    eyeStyle: _EyeStyle.happy,
+    mouthStyle: _MouthStyle.smile,
+    accessoryA: _AccessoryType.goldHalo,
+    accessoryB: _AccessoryType.none,
+    auraColor: Color(0x44FFD700), // gold aura
+  ),
+  // Silk Hands — zero hard brakes for 7 sessions. Effortlessly smooth:
+  // a sleek silver car, serene closed eyes, and a scatter of sparkles.
+  RareArchetype.silkHands: _ArchetypeConfig(
+    carColor: Color(0xFFCFD8DC), // silver
+    headColor: Color(0xFFFFCC99),
+    eyeStyle: _EyeStyle.closed,
+    mouthStyle: _MouthStyle.smile,
+    accessoryA: _AccessoryType.silkSparkle,
+    accessoryB: _AccessoryType.none,
+    auraColor: Color(0x33B0BEC5), // soft silver aura
+  ),
+};
+
+// ---------------------------------------------------------------------------
 // AvatarPainter
 // ---------------------------------------------------------------------------
 
@@ -157,20 +204,28 @@ const Map<DrivingArchetype, _ArchetypeConfig> _kConfigs =
 class AvatarPainter extends CustomPainter {
   const AvatarPainter({
     required this.archetype,
+    this.rareArchetype,
     this.carColorOverride,
     this.earnedAccessory,
     this.showAura = true,
   });
 
   final DrivingArchetype archetype;
+
+  /// When set, overrides [archetype] with a special rare look.
+  final RareArchetype? rareArchetype;
   final Color? carColorOverride;
   final _AccessoryType? earnedAccessory;
   final bool showAura;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final _ArchetypeConfig cfg =
-        _kConfigs[archetype] ?? _kConfigs[DrivingArchetype.zenMaster]!;
+    // A rare archetype, when unlocked, takes over the whole look.
+    final _ArchetypeConfig cfg = rareArchetype != null
+        ? (_kRareConfigs[rareArchetype] ??
+            _kConfigs[archetype] ??
+            _kConfigs[DrivingArchetype.zenMaster]!)
+        : (_kConfigs[archetype] ?? _kConfigs[DrivingArchetype.zenMaster]!);
 
     final double w = size.width;  // 64
     final double h = size.height; // 80
@@ -572,6 +627,12 @@ class AvatarPainter extends CustomPainter {
         _drawHalo(canvas, head, r);
       case _AccessoryType.crownSmall:
         _drawCrown(canvas, head, r);
+      case _AccessoryType.creatureHorns:
+        _drawCreatureHorns(canvas, head, r);
+      case _AccessoryType.goldHalo:
+        _drawGoldHalo(canvas, head, r);
+      case _AccessoryType.silkSparkle:
+        _drawSilkSparkle(canvas, head, r);
       default:
         break;
     }
@@ -813,9 +874,75 @@ class AvatarPainter extends CustomPainter {
     }
   }
 
+  // ── Rare: Creature of Habit — two little monster horns ────────────────────
+
+  void _drawCreatureHorns(Canvas canvas, Offset head, double r) {
+    final Paint horn = Paint()..color = const Color(0xFF33691E); // dark green
+    final double y = head.dy - r * 0.74;
+    final Path left = Path()
+      ..moveTo(head.dx - r * 0.42, y + r * 0.30)
+      ..lineTo(head.dx - r * 0.30, y - r * 0.14)
+      ..lineTo(head.dx - r * 0.16, y + r * 0.30)
+      ..close();
+    final Path right = Path()
+      ..moveTo(head.dx + r * 0.16, y + r * 0.30)
+      ..lineTo(head.dx + r * 0.30, y - r * 0.14)
+      ..lineTo(head.dx + r * 0.42, y + r * 0.30)
+      ..close();
+    canvas.drawPath(left, horn);
+    canvas.drawPath(right, horn);
+  }
+
+  // ── Rare: Guardian — a rich gold halo (thicker than the zen halo) ─────────
+
+  void _drawGoldHalo(Canvas canvas, Offset head, double r) {
+    canvas.drawArc(
+      Rect.fromCenter(
+          center: head + Offset(0, -r * 0.95),
+          width: r * 1.00,
+          height: r * 0.32),
+      0,
+      math.pi * 2,
+      false,
+      Paint()
+        ..color = const Color(0xFFFFD700)
+        ..strokeWidth = 4.0
+        ..style = PaintingStyle.stroke,
+    );
+  }
+
+  // ── Rare: Silk Hands — a scatter of little sparkle stars ──────────────────
+
+  void _drawSilkSparkle(Canvas canvas, Offset head, double r) {
+    final Paint star = Paint()..color = const Color(0xFFFFFFFF);
+    for (final Offset c in <Offset>[
+      Offset(head.dx - r * 0.70, head.dy - r * 0.55),
+      Offset(head.dx + r * 0.72, head.dy - r * 0.30),
+      Offset(head.dx + r * 0.55, head.dy + r * 0.55),
+    ]) {
+      _drawSparkle(canvas, c, r * 0.18, star);
+    }
+  }
+
+  /// A 4-point sparkle centered at [c] with arm length [s].
+  void _drawSparkle(Canvas canvas, Offset c, double s, Paint paint) {
+    final Path p = Path()
+      ..moveTo(c.dx, c.dy - s)
+      ..lineTo(c.dx + s * 0.28, c.dy - s * 0.28)
+      ..lineTo(c.dx + s, c.dy)
+      ..lineTo(c.dx + s * 0.28, c.dy + s * 0.28)
+      ..lineTo(c.dx, c.dy + s)
+      ..lineTo(c.dx - s * 0.28, c.dy + s * 0.28)
+      ..lineTo(c.dx - s, c.dy)
+      ..lineTo(c.dx - s * 0.28, c.dy - s * 0.28)
+      ..close();
+    canvas.drawPath(p, paint);
+  }
+
   @override
   bool shouldRepaint(AvatarPainter old) =>
       old.archetype != archetype ||
+      old.rareArchetype != rareArchetype ||
       old.carColorOverride != carColorOverride ||
       old.earnedAccessory != earnedAccessory;
 }
@@ -830,12 +957,16 @@ class AvatarWidget extends StatelessWidget {
   const AvatarWidget({
     super.key,
     required this.archetype,
+    this.rareArchetype,
     this.size = 80.0,
     this.carColorOverride,
     this.earnedAccessory,
   });
 
   final DrivingArchetype archetype;
+
+  /// When set, overrides [archetype] with a special rare look.
+  final RareArchetype? rareArchetype;
   final double size;
   final Color? carColorOverride;
   final _AccessoryType? earnedAccessory;
@@ -848,6 +979,7 @@ class AvatarWidget extends StatelessWidget {
       child: CustomPaint(
         painter: AvatarPainter(
           archetype: archetype,
+          rareArchetype: rareArchetype,
           carColorOverride: carColorOverride,
           earnedAccessory: earnedAccessory,
         ),
