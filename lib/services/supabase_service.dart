@@ -68,9 +68,20 @@ class SupabaseService {
     if (!isConnected) {
       return; // Offline mode: nothing to sign in to.
     }
-    final Session? existingSession = client.auth.currentSession;
-    if (existingSession == null) {
+    // Session persists across launches — only sign in if there isn't one.
+    if (client.auth.currentSession != null) {
+      return;
+    }
+    try {
       await client.auth.signInAnonymously();
+    } catch (error) {
+      // Never let an auth failure crash app startup. Most common cause:
+      // "Anonymous sign-ins are disabled" — enable it in the Supabase
+      // dashboard (Authentication → Providers → Anonymous). Until a session
+      // exists the app still runs (map + GPS work), but backend writes that
+      // need auth.uid() are blocked by RLS and fail silently.
+      // ignore: avoid_print
+      print('Bravo Maps: anonymous sign-in failed ($error)');
     }
   }
 

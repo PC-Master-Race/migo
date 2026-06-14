@@ -32,6 +32,12 @@ Future<void> main() async {
   // Backend second — safe to call offline; Supabase queues until reachable.
   await SupabaseService.initialize();
 
+  // Sign in (anonymously) so RLS has an auth.uid() to key on. No-op offline.
+  // A database trigger (handle_new_user) auto-creates the matching
+  // public.users row on first sign-in, so foreign keys are satisfied.
+  // Awaited so the session exists before any provider reads the user id.
+  await SupabaseService.signInAnonymously();
+
   // Init BravoService — loads already-earned achievements so we don't re-award.
   final String? uid = SupabaseService.isConnected
       ? SupabaseService.client.auth.currentSession?.user.id

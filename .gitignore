@@ -9,6 +9,10 @@
 
 
 
+# Local secrets — Supabase credentials passed via --dart-define-from-file.
+# NEVER commit this; the repo is public.
+env.json
+
 # Flutter repo-specific
 /bin/cache/
 /bin/internal/bootstrap.bat

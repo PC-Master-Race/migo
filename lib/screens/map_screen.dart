@@ -379,7 +379,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         children: <Widget>[
           // Base map — flat, full-screen (the perspective-tilt experiment was
           // removed because it shrank the map to ~1/3 of the screen).
-          _buildMap(zoomMode, position, route),
+          _buildMap(zoomMode, defaultMode, position, route),
 
           // Attribution badge (bottom-right corner).
           _buildAttributionBadge(zoomMode),
@@ -472,6 +472,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   Widget _buildMap(
     MapZoomMode zoomMode,
+    MapZoomMode defaultMode,
     Position? position,
     BravoRoute? route,
   ) {

@@ -44,6 +44,37 @@ create policy "users: own row only"
   using (auth.uid() = id)
   with check (auth.uid() = id);
 
+-- ------------------------------------------------------------
+-- TRIGGER: auto-create a profile row on sign-up
+-- Fires whenever Supabase Auth creates an auth.users row (including
+-- anonymous sign-ins). Inserts the matching public.users row so every
+-- foreign key (vehicles, archetype_profiles, hazards, ...) is satisfied
+-- with no client-side bootstrap. SECURITY DEFINER so it can write
+-- regardless of the caller's RLS context. display_name defaults to
+-- 'Driver' and is updated later from onboarding.
+-- ------------------------------------------------------------
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.users (id, display_name)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'display_name', 'Driver')
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
 -- ============================================================
 -- TABLE: vehicles
 -- The user's car. Make/model/year drives the avatar subtype;
