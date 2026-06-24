@@ -5,6 +5,7 @@
 import 'package:geolocator/geolocator.dart';
 
 import '../constants.dart';
+import 'location_filter.dart';
 
 // --- PLATFORM PARITY NOTE ---
 // geolocator is cross-platform: the same calls work on Android and iOS.
@@ -40,12 +41,47 @@ class LocationService {
   /// Continuous position updates, at most every
   /// [locationDistanceFilterMeters] of movement. Each [Position] carries
   /// speed in meters/second — the HUD converts via gpsSpeedToDisplayMph.
+  ///
+  /// Raw fixes are passed through a [LocationKalmanFilter] so the lat/lng we
+  /// emit is a smoothed, outlier-rejected coordinate line. Everything
+  /// downstream (avatar, camera, speed-limit, family sharing) gets the clean
+  /// version transparently.
   Stream<Position> positionStream() {
     const LocationSettings settings = LocationSettings(
       accuracy: LocationAccuracy.bestForNavigation,
       distanceFilter: locationDistanceFilterMeters,
     );
-    return Geolocator.getPositionStream(locationSettings: settings);
+    final LocationKalmanFilter filter = LocationKalmanFilter();
+    return Geolocator.getPositionStream(locationSettings: settings)
+        .map((Position raw) {
+      final List<double> smoothed = filter.process(
+        raw.latitude,
+        raw.longitude,
+        raw.accuracy,
+        raw.timestamp.millisecondsSinceEpoch,
+      );
+      return _withLatLng(raw, smoothed[0], smoothed[1]);
+    });
+  }
+
+  /// Returns a copy of [p] with its latitude/longitude replaced by the
+  /// Kalman-smoothed values, preserving every other field (speed, heading,
+  /// accuracy, timestamp, etc.).
+  Position _withLatLng(Position p, double lat, double lng) {
+    return Position(
+      latitude: lat,
+      longitude: lng,
+      timestamp: p.timestamp,
+      accuracy: p.accuracy,
+      altitude: p.altitude,
+      altitudeAccuracy: p.altitudeAccuracy,
+      heading: p.heading,
+      headingAccuracy: p.headingAccuracy,
+      speed: p.speed,
+      speedAccuracy: p.speedAccuracy,
+      floor: p.floor,
+      isMocked: p.isMocked,
+    );
   }
 
   /// One-shot current position for initial map centering, or null when

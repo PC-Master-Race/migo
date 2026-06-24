@@ -256,31 +256,44 @@ class _AvatarTeaserPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          const _PageHeader(
-            emoji: "\u{1F3CE}",
-            title: 'Drive to discover\nyour avatar.',
-            subtitle: 'Bravo Maps figures out your style and assigns your chibi character. Which will you be?',
-          ),
-          const SizedBox(height: 28),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 16, runSpacing: 16,
-            children: DrivingArchetype.values.map((DrivingArchetype a) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                AvatarWidget(archetype: a, size: 56),
-                const SizedBox(height: 4),
-                Text(_shortName(a),
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 10, fontWeight: FontWeight.w600)),
-              ],
-            )).toList(),
-          ),
-          const SizedBox(height: 40),
-          _PrimaryButton(label: "I'm ready to find out", onPressed: onNext),
-        ],
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          // Scrollable so it never overflows on shorter screens, yet stays
+          // vertically centred when there's enough room.
+          return SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    const _PageHeader(
+                      emoji: "\u{1F3CE}",
+                      title: 'Drive to discover\nyour avatar.',
+                      subtitle: 'Bravo Maps figures out your style and assigns your chibi character. Which will you be?',
+                    ),
+                    const SizedBox(height: 28),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 16, runSpacing: 16,
+                      children: DrivingArchetype.values.map((DrivingArchetype a) => Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          AvatarWidget(archetype: a, size: 56),
+                          const SizedBox(height: 4),
+                          Text(_shortName(a),
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 10, fontWeight: FontWeight.w600)),
+                        ],
+                      )).toList(),
+                    ),
+                    const SizedBox(height: 40),
+                    _PrimaryButton(label: "I'm ready to find out", onPressed: onNext),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

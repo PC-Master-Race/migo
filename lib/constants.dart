@@ -104,6 +104,27 @@ const int locationDistanceFilterMeters = 3;
 /// standing still otherwise shows phantom 1–2 mph readings.
 const double speedJitterFloorMph = 2.0;
 
+// --- GPS SMOOTHING (Kalman filter) ---
+// geolocator already uses Android's fused provider (GPS + wifi + cell +
+// sensors). This filter cleans up the residual jitter and rejects outliers it
+// leaves, so the avatar follows a stable path instead of teleporting.
+
+/// Floor on a fix's reported accuracy (metres). Stops an over-optimistic
+/// accuracy value from making the filter over-trust a noisy fix.
+const double kalmanMinAccuracyMetres = 3.0;
+
+/// Assumed movement "process noise" (metres/sec). Higher = trusts new fixes
+/// faster (more responsive, less smooth); lower = smoother but laggier.
+/// ~6 is a balanced value for road driving.
+const double kalmanProcessNoiseMetresPerSec = 6.0;
+
+/// Max plausible travel speed (m/s) for the outlier check. 70 m/s ≈ 156 mph;
+/// a fix implying faster travel than this is treated as a bad signal.
+const double kalmanMaxSpeedMetresPerSec = 70.0;
+
+/// Slack multiplier on the outlier check so brief speed bursts aren't flagged.
+const double kalmanOutlierFactor = 1.5;
+
 // --- SPEED LIMIT LOOKUP ---
 
 /// Radius (meters) around the user searched for an OSM way with a maxspeed
