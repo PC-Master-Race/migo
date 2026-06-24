@@ -46,7 +46,9 @@ class RouteOptionsScreen extends ConsumerWidget {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
+        // Scrollable so the sheet never overflows on small screens / big fonts.
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -148,6 +150,7 @@ class RouteOptionsScreen extends ConsumerWidget {
                 ),
               ),
           ],
+          ),
         ),
       ),
     );

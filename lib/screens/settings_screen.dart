@@ -10,7 +10,6 @@ import '../theme/bravo_theme.dart';
 import '../providers/settings_provider.dart';
 import '../providers/gas_poi_provider.dart';
 import '../services/map_service.dart'; // MapZoomMode
-import '../providers/map_provider.dart';
 
 const Color _bg     = Color(0xFF0D0D1A);
 const Color _cardBg = Color(0xFF161625);

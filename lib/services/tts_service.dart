@@ -134,7 +134,7 @@ class TtsService {
   Future<void> _playMp3Bytes(Uint8List bytes) async {
     // Write to temp file — AudioPlayer plays from a device path.
     final Directory tmp = await getTemporaryDirectory();
-    final File file = File('\${tmp.path}/migo_nav_tts.mp3');
+    final File file = File('${tmp.path}/migo_nav_tts.mp3');
     await file.writeAsBytes(bytes, flush: true);
 
     final AudioPlayer player = AudioPlayer();

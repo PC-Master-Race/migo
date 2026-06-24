@@ -86,7 +86,9 @@ class _ReportGasPriceSheetState extends ConsumerState<ReportGasPriceSheet> {
         top: 20,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: Column(
+      // Scrollable so the form never overflows with the keyboard up / big fonts.
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -233,6 +235,7 @@ class _ReportGasPriceSheetState extends ConsumerState<ReportGasPriceSheet> {
             ),
           ],
         ],
+      ),
       ),
     );
   }

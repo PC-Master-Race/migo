@@ -15,7 +15,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:latlong2/latlong.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/family_model.dart';
 import 'supabase_service.dart';

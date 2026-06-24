@@ -17,7 +17,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../constants.dart';
 import '../../models/hazard_model.dart';
 import '../../providers/hazard_provider.dart';
-import '../../theme/bravo_theme.dart';
 import '../hazard_icons/hazard_icon.dart';
 
 // --- WIDGET ---

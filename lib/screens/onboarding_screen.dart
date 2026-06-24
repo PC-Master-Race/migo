@@ -68,11 +68,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             physics: const NeverScrollableScrollPhysics(),
             onPageChanged: (int i) => setState(() => _currentPage = i),
             children: <Widget>[
-              _WelcomePage(onNext: _next),
-              _PrivacyPage(onNext: _next),
+              // _ScrollSafe lets a page scroll (instead of overflowing) on
+              // short screens / large system fonts. The Name and Avatar pages
+              // already wrap themselves, so they're not double-wrapped here.
+              _ScrollSafe(child: _WelcomePage(onNext: _next)),
+              _ScrollSafe(child: _PrivacyPage(onNext: _next)),
               _NamePage(controller: _nameController, onNext: _next),
               _AvatarTeaserPage(onNext: _next),
-              _ReadyPage(onFinish: _finish),
+              _ScrollSafe(child: _ReadyPage(onFinish: _finish)),
             ],
           ),
           if (_currentPage < _pageCount - 1)
@@ -108,6 +111,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Wraps a page so it scrolls when it's taller than the viewport (short
+/// screens, large system fonts, on-screen keyboard) yet stays vertically
+/// centred when it fits. Apply once per page — never double-wrap.
+class _ScrollSafe extends StatelessWidget {
+  const _ScrollSafe({required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(child: child),
+          ),
+        );
+      },
     );
   }
 }
@@ -213,16 +237,24 @@ class _NamePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          const _PageHeader(
-            emoji: "\u{1F44B}",
-            title: "What should we\ncall you?",
-            subtitle: 'Shown only to your family group. Change it anytime in Settings.',
-          ),
-          const SizedBox(height: 36),
-          TextField(
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          // Scrollable so the keyboard opening can't overflow the page, while
+          // staying vertically centred when the keyboard is closed.
+          return SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    const _PageHeader(
+                      emoji: "\u{1F44B}",
+                      title: "What should we\ncall you?",
+                      subtitle: 'Shown only to your family group. Change it anytime in Settings.',
+                    ),
+                    const SizedBox(height: 36),
+                    TextField(
             controller: controller,
             textCapitalization: TextCapitalization.words,
             maxLength: 24,
@@ -236,13 +268,18 @@ class _NamePage extends StatelessWidget {
               counterStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
             ),
           ),
-          const SizedBox(height: 32),
-          _PrimaryButton(label: 'Continue', onPressed: onNext),
-          const SizedBox(height: 12),
-          TextButton(onPressed: onNext,
-              child: Text('Skip for now',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 14))),
-        ],
+                    const SizedBox(height: 32),
+                    _PrimaryButton(label: 'Continue', onPressed: onNext),
+                    const SizedBox(height: 12),
+                    TextButton(onPressed: onNext,
+                        child: Text('Skip for now',
+                            style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 14))),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
