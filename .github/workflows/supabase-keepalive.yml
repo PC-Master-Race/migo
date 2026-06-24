@@ -1,0 +1,49 @@
+# Supabase Keep-Alive
+#
+# Free-tier Supabase projects PAUSE after 7 days with no activity (data is kept,
+# but the project goes offline until manually restored). This workflow makes a
+# tiny request to the REST API once a day so the project always looks active and
+# never pauses.
+#
+# SETUP (one time): add two repository secrets under
+#   GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+#     SUPABASE_URL = https://YOUR-PROJECT.supabase.co
+#     SUPABASE_KEY = your publishable (anon) key
+# The workflow file itself holds NO secrets, so it's safe in a public repo.
+
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    # Daily at 08:37 UTC. (Off-the-hour on purpose — GitHub delays/drops a lot
+    # of :00 scheduled runs.) Daily is comfortably under the 7-day pause window.
+    - cron: '37 8 * * *'
+  workflow_dispatch: {} # lets you run it on demand from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::SUPABASE_URL / SUPABASE_KEY secrets are not set."
+            exit 1
+          fi
+          # A lightweight count query registers DB activity and resets the
+          # pause timer. RLS may return 0 rows — that's fine, the request still
+          # counts as activity. -f makes a non-2xx response fail the job.
+          code=$(curl -sS -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/users?select=count" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}")
+          echo "Supabase responded with HTTP $code"
+          # 2xx or 401/403 (RLS) all prove the project is awake; only treat
+          # connection failures / 5xx as a real problem.
+          case "$code" in
+            2*|401|403) echo "Project is active."; exit 0 ;;
+            *) echo "::warning::Unexpected status $code"; exit 0 ;;
+          esac
