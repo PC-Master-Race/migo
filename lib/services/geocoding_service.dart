@@ -31,9 +31,13 @@ class GeocodingService {
   /// Searches for [query], biased toward [userPosition].
   ///
   /// Strategy:
-  ///  1. Photon with lat/lon — returns nearest OSM matches first.
-  ///  2. If Photon returns nothing, fall back to Nominatim (better for
-  ///     structured addresses like "1234 Main St").
+  ///  • Street addresses (query starts with a house number, e.g. "123 Main
+  ///    St") → Nominatim first. It returns the actual numbered address;
+  ///    Photon tends to return just the street with no number.
+  ///  • Everything else (businesses, POIs, place names) → Photon first, for
+  ///    its strong distance-first ranking.
+  ///  In both cases the other geocoder is used as a fallback if the first
+  ///  returns nothing.
   ///
   /// Returns up to [nominatimMaxResults] results. Empty list on error.
   Future<List<GeocodingResult>> search(
@@ -43,12 +47,19 @@ class GeocodingService {
     final String q = query.trim();
     if (q.isEmpty) return <GeocodingResult>[];
 
-    // --- Pass 1: Photon ---
+    // A leading digit means the user is typing a street address.
+    final bool looksLikeAddress = RegExp(r'^\s*\d').hasMatch(q);
+
+    if (looksLikeAddress) {
+      final List<GeocodingResult> nominatim =
+          await _nominatimSearch(q, userPosition: userPosition);
+      if (nominatim.isNotEmpty) return nominatim;
+      return _photonSearch(q, userPosition: userPosition);
+    }
+
     final List<GeocodingResult> photonResults =
         await _photonSearch(q, userPosition: userPosition);
     if (photonResults.isNotEmpty) return photonResults;
-
-    // --- Pass 2: Nominatim fallback ---
     return _nominatimSearch(q, userPosition: userPosition);
   }
 
@@ -224,15 +235,43 @@ class GeocodingService {
     final double? lon = double.tryParse(lonStr);
     if (lat == null || lon == null) return null;
 
-    final List<String> parts = displayName.split(', ');
-    final String shortName =
-        parts.length >= 2 ? '${parts[0]}, ${parts[1]}' : parts[0];
+    final String shortName = _nominatimShortName(item, displayName);
 
     return GeocodingResult(
       displayName: displayName,
       shortName: shortName,
       position: LatLng(lat, lon),
     );
+  }
+
+  /// Builds a clean option label like "123 Main St, Springfield" from
+  /// Nominatim's structured `address` (so the street NUMBER is visible in the
+  /// list). Falls back to the first parts of [displayName] when the structured
+  /// fields aren't present (e.g. a place or park).
+  String _nominatimShortName(Map<String, dynamic> item, String displayName) {
+    final Map<String, dynamic>? addr =
+        item['address'] as Map<String, dynamic>?;
+    if (addr != null) {
+      final String houseNo = (addr['house_number'] as String?) ?? '';
+      final String road = (addr['road'] as String?) ?? '';
+      final String city = (addr['city'] as String?) ??
+          (addr['town'] as String?) ??
+          (addr['village'] as String?) ??
+          (addr['hamlet'] as String?) ??
+          '';
+      final String streetLine = <String>[
+        if (houseNo.isNotEmpty) houseNo,
+        if (road.isNotEmpty) road,
+      ].join(' ');
+      final String label = <String>[
+        if (streetLine.isNotEmpty) streetLine,
+        if (city.isNotEmpty) city,
+      ].join(', ');
+      if (label.isNotEmpty) return label;
+    }
+    // Fallback: first two comma-parts of the full display name.
+    final List<String> parts = displayName.split(', ');
+    return parts.length >= 2 ? '${parts[0]}, ${parts[1]}' : parts[0];
   }
 
   // -------------------------------------------------------------------------
