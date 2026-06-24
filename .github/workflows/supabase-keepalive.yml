@@ -29,21 +29,36 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+          # Trim any stray whitespace/newlines that sneak in when pasting the
+          # secret values (a common cause of "malformed URL" errors).
+          URL="$(printf '%s' "$SUPABASE_URL" | tr -d '[:space:]')"
+          KEY="$(printf '%s' "$SUPABASE_KEY" | tr -d '[:space:]')"
+
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
             echo "::error::SUPABASE_URL / SUPABASE_KEY secrets are not set."
             exit 1
           fi
+
           # A lightweight count query registers DB activity and resets the
           # pause timer. RLS may return 0 rows — that's fine, the request still
-          # counts as activity. -f makes a non-2xx response fail the job.
+          # counts as activity.
+          set +e
           code=$(curl -sS -o /dev/null -w "%{http_code}" \
-            "${SUPABASE_URL}/rest/v1/users?select=count" \
-            -H "apikey: ${SUPABASE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_KEY}")
-          echo "Supabase responded with HTTP $code"
-          # 2xx or 401/403 (RLS) all prove the project is awake; only treat
-          # connection failures / 5xx as a real problem.
+            "${URL}/rest/v1/users?select=count" \
+            -H "apikey: ${KEY}" \
+            -H "Authorization: Bearer ${KEY}")
+          rc=$?
+          set -e
+
+          echo "curl exit=$rc, HTTP status=$code"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::Request failed (curl exit $rc). The SUPABASE_URL secret is probably malformed — re-save it as exactly https://YOUR-PROJECT.supabase.co with no spaces, quotes, or prefix."
+            exit 1
+          fi
+
+          # 2xx or 401/403 (RLS) all prove the project is awake; the request
+          # itself is what keeps it from pausing.
           case "$code" in
-            2*|401|403) echo "Project is active."; exit 0 ;;
-            *) echo "::warning::Unexpected status $code"; exit 0 ;;
+            2*|401|403) echo "Project is active." ;;
+            *) echo "::warning::Unexpected status $code (project was still pinged)." ;;
           esac
