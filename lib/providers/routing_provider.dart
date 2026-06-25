@@ -13,6 +13,7 @@ import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
 import '../services/tts_service.dart';
 import '../utils/map_utils.dart';
+import 'alpr_provider.dart';
 import 'location_provider.dart';
 
 // ============================================================
@@ -71,10 +72,11 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
 
   /// Calculates a route from the user's current GPS position to [destination]
   /// using the current [RoutePreferences]. Cancels any in-flight calculation.
-  Future<void> calculate({
-    required LatLng destination,
-    List<LatLng> alprLocations = const <LatLng>[],
-  }) async {
+  ///
+  /// When the avoid-ALPR preference is on, nearby ALPR camera locations are
+  /// fetched here and passed as exclude zones so the route actually routes
+  /// around them (just like avoid tolls/freeways).
+  Future<void> calculate({required LatLng destination}) async {
     final int token = ++_calcToken;
     state = const AsyncValue<BravoRoute?>.loading();
 
@@ -90,12 +92,19 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
     final RoutePreferences prefs = _ref.read(routePreferencesProvider);
     final LatLng origin = LatLng(position.latitude, position.longitude);
 
+    // Fetch ALPR locations to avoid only when the toggle is on.
+    List<LatLng> alpr = const <LatLng>[];
+    if (prefs.avoidAlprCameras) {
+      alpr = await _ref.read(alprServiceProvider).fetchAllAlprLocations(origin);
+      if (token != _calcToken) return; // a newer request started during fetch
+    }
+
     final AsyncValue<BravoRoute?> result = await AsyncValue.guard<BravoRoute?>(
       () => _service.calculateRoute(
         origin: origin,
         destination: destination,
         preferences: prefs,
-        alprLocations: alprLocations,
+        alprLocations: alpr,
       ),
     );
 
@@ -106,13 +115,10 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
 
   /// Recalculates from the current GPS position using the same destination
   /// and updated preferences. Called on preference toggle changes or off-route.
-  Future<void> recalculate({List<LatLng> alprLocations = const <LatLng>[]}) async {
+  Future<void> recalculate() async {
     final BravoRoute? current = state.valueOrNull;
     if (current == null) return;
-    await calculate(
-      destination: current.destination,
-      alprLocations: alprLocations,
-    );
+    await calculate(destination: current.destination);
   }
 
   /// Clears the active route and cancels any in-flight calculation.

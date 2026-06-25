@@ -379,6 +379,10 @@ const int hazardExpiryPromptMinutes = 60;
 /// cameras around the user's current position.
 const int alprOverpassRadiusMeters = 16000; // ~10 miles
 
+/// Grid size (degrees, ≈1.4 mi) for throttling ALPR map fetches — re-query only
+/// when the user crosses into a new cell, not on every GPS tick.
+const double alprFetchGridDegrees = 0.02;
+
 /// Supabase table names — centralized so a rename can't silently break queries.
 const String tableHazards = 'hazards';
 const String tableHazardVotes = 'hazard_votes';

@@ -40,6 +40,7 @@ import '../widgets/map_controls/recenter_button.dart';
 import 'route_options_screen.dart';
 import '../models/hazard_model.dart';
 import '../providers/hazard_provider.dart';
+import '../providers/alpr_provider.dart';
 import '../models/family_model.dart';
 import '../providers/family_provider.dart';
 import '../widgets/avatar/family_member_marker.dart';
@@ -510,16 +511,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           // don't cover the results' Save icons) AND while navigating (so they
           // don't cover the turn-by-turn banner at the top).
           if (!_showSearchResults && !nowNavigating) ...<Widget>[
-            // Settings gear — below the search bar, not overlapping it.
+            // Settings gear — moved further down the right edge so it (and the
+            // layer toggles below it) stay clear of the search bar / banners.
             Positioned(
-              top: statusBarH + 68,
+              top: statusBarH + 150,
               right: 16,
               child: _SettingsButton(context: context),
             ),
 
             // Layer toggle panel — stacked below the settings gear.
             Positioned(
-              top: statusBarH + 112,
+              top: statusBarH + 194,
               right: 16,
               child: _buildLayerToggles(context),
             ),
@@ -624,6 +626,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
 
         _buildHazardLayer(ref),
+        _buildAlprLayer(ref),
         _buildFamilyLayer(ref),
         _buildGasLayer(ref),
         _buildPoiLayer(ref),
@@ -784,6 +787,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           width: hazardIconSize,
           height: hazardIconSize,
           child: HazardIcon(type: h.type, isOwn: !h.isCommunityConfirmed),
+        );
+      }).toList(),
+    );
+  }
+
+  /// ALPR camera markers (DeFlock/OSM + community). Only when the layer is on.
+  Widget _buildAlprLayer(WidgetRef ref) {
+    if (!ref.watch(alprLayerEnabledProvider)) return const SizedBox.shrink();
+    final List<LatLng> cams =
+        ref.watch(nearbyAlprProvider).valueOrNull ?? <LatLng>[];
+    if (cams.isEmpty) return const SizedBox.shrink();
+
+    return MarkerLayer(
+      markers: cams.map((LatLng c) {
+        return Marker(
+          point: c,
+          width: 26,
+          height: 26,
+          child: const _AlprCameraMarker(),
         );
       }).toList(),
     );
@@ -1048,6 +1070,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Widget _buildLayerToggles(BuildContext context) {
     final bool gasOn = ref.watch(gasLayerEnabledProvider);
     final bool hazardsOn = ref.watch(hazardLayerEnabledProvider);
+    final bool alprOn = ref.watch(alprLayerEnabledProvider);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1066,6 +1089,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           onTap: () =>
               ref.read(hazardLayerEnabledProvider.notifier).state = !hazardsOn,
         ),
+        const SizedBox(height: 6),
+        _LayerToggleButton(
+          icon: Icons.photo_camera_outlined,
+          active: alprOn,
+          tooltip: alprOn ? 'Hide ALPR cameras' : 'Show ALPR cameras',
+          onTap: () =>
+              ref.read(alprLayerEnabledProvider.notifier).state = !alprOn,
+        ),
       ],
     );
   }
@@ -1082,9 +1113,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         navState?.timeRemainingSeconds ?? route.estimatedSeconds;
     final int mins = (secs / 60).round();
 
-    final String distLabel = distM < 1000
-        ? '${distM.round()} m'
-        : '${(distM / 1000).toStringAsFixed(1)} km';
+    final String distLabel = formatUsDistance(distM);
     final String timeLabel = mins < 60
         ? '$mins min'
         : '${mins ~/ 60} h ${mins % 60} min';
@@ -1154,6 +1183,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // --- ATTRIBUTION ---
 
   Widget _buildAttributionBadge(MapZoomMode zoomMode) {
+    // Credit DeFlock/OSM for the ALPR camera data whenever that layer is shown.
+    final bool alprOn = ref.watch(alprLayerEnabledProvider);
+    final String base = MapService.attributionForMode(zoomMode);
+    final String text =
+        alprOn ? '$base · ALPR data © DeFlock / OpenStreetMap' : base;
     return Positioned(
       bottom: 8,
       right: 8,
@@ -1165,7 +1199,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: Text(
-            MapService.attributionForMode(zoomMode),
+            text,
             style: const TextStyle(fontSize: 11, color: migoInk),
           ),
         ),
@@ -1594,6 +1628,27 @@ class _DestinationMarker extends StatelessWidget {
       ),
       child:
           const Icon(Icons.flag_rounded, color: Colors.white, size: 16),
+    );
+  }
+}
+
+/// An ALPR (license-plate camera) marker — plum, to match the privacy accent.
+class _AlprCameraMarker extends StatelessWidget {
+  const _AlprCameraMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: migoPlum,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(color: Colors.black38, blurRadius: 4),
+        ],
+      ),
+      child: const Icon(Icons.photo_camera_rounded,
+          color: Colors.white, size: 15),
     );
   }
 }
