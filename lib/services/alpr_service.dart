@@ -1,13 +1,15 @@
 // alpr_service.dart — ALPR (automated license plate reader) location data.
 // Not being surveilled is treated as a human right in this codebase.
-// This service merges two sources:
-//   1. Community reports stored in our Supabase alpr_locations table.
-//   2. OSM-tagged surveillance cameras queried via Overpass API.
-//      (nodes tagged man_made=surveillance + surveillance:type=ALPR)
-// Privacy guarantee: the user's position is sent to Overpass only in a
-// coarse bounding area, with no user identity header.
-// TODO: [proxy both sources through a Migo server so the user's exact
-// position never reaches third-party servers] [deferred: needs server infra]
+//
+// SINGLE SOURCE OF TRUTH: the Supabase `alpr_locations` table. It holds both
+// OSM/DeFlock-imported cameras (source='osm', bulk-loaded once via
+// importOsmAlprForRegion) and community reports. The map layer and routing both
+// read from this table — fast, complete, and offline-friendly, with no live
+// Overpass dependency at drive time.
+//
+// Privacy: the one-time OSM import is the only call that hits Overpass, and it
+// sends a coarse bounding box, no user identity. ALPR data never leaves to any
+// third party.
 
 import 'dart:convert';
 import 'dart:math' as math;
@@ -18,23 +20,37 @@ import 'package:latlong2/latlong.dart';
 import '../constants.dart';
 import 'supabase_service.dart';
 
-// --- SERVICE ---
+/// Outcome of a one-time OSM import — carries enough detail to diagnose a
+/// "0 cameras" result instead of failing silently.
+class AlprImportResult {
+  const AlprImportResult({
+    required this.added,
+    required this.fetched,
+    this.error,
+  });
 
-/// Provides ALPR camera locations from community reports + OSM data.
+  /// Rows newly inserted into the DB.
+  final int added;
+
+  /// Cameras pulled from OSM (before de-dupe).
+  final int fetched;
+
+  /// Human-readable failure reason, or null on success.
+  final String? error;
+}
+
+/// Reads ALPR cameras from the DB and runs the one-time OSM import.
 class AlprService {
-  // --- FETCH ---
+  // --- DB READS (map display + routing) ---
 
-  /// Fetches validated community-reported ALPR locations within [radiusMiles]
-  /// of [center] from Supabase.
-  Future<List<LatLng>> fetchCommunityAlprLocations(
-    LatLng center, {
-    double radiusMiles = 10.0,
-  }) async {
+  /// Validated ALPR cameras within the given lat/long box.
+  Future<List<LatLng>> fetchAlprInBbox(
+    double minLat,
+    double maxLat,
+    double minLon,
+    double maxLon,
+  ) async {
     if (!SupabaseService.isConnected) return <LatLng>[];
-
-    final (double minLat, double maxLat, double minLon, double maxLon) =
-        _boundingBox(center, radiusMiles);
-
     try {
       final List<dynamic> rows = await SupabaseService.client
           .from(tableAlprLocations)
@@ -44,8 +60,7 @@ class AlprService {
           .lte('latitude', maxLat)
           .gte('longitude', minLon)
           .lte('longitude', maxLon)
-          .limit(500);
-
+          .limit(2000);
       return rows.map((dynamic r) {
         final Map<String, dynamic> row = r as Map<String, dynamic>;
         return LatLng(
@@ -58,70 +73,124 @@ class AlprService {
     }
   }
 
-  /// Queries Overpass API for OSM-tagged ALPR/surveillance cameras near
-  /// [center] within [radiusMeters].
-  ///
-  /// Returns an empty list on timeout or parse errors — caller degrades
-  /// gracefully. Only the coarse bounding area is sent, not the exact position.
-  Future<List<LatLng>> fetchOsmAlprLocations(
-    LatLng center, {
-    int radiusMeters = alprOverpassRadiusMeters,
-  }) async {
-    // Query for nodes explicitly tagged as ALPR cameras in OSM.
-    // Dataset coverage is sparse but growing — community effort.
-    final String query =
-        '[out:json][timeout:10];'
-        '(node(around:$radiusMeters,${center.latitude},${center.longitude})'
-        '[man_made=surveillance][surveillance:type=ALPR];'
-        'node(around:$radiusMeters,${center.latitude},${center.longitude})'
-        '["surveillance:type"="ALPR"];);'
-        'out;';
+  /// Cameras within [radiusMiles] of [center] — for the map display layer.
+  Future<List<LatLng>> fetchAlprNear(LatLng center, {double radiusMiles = 12}) {
+    final (double minLat, double maxLat, double minLon, double maxLon) =
+        _boundingBox(center, radiusMiles);
+    return fetchAlprInBbox(minLat, maxLat, minLon, maxLon);
+  }
 
-    try {
-      final http.Response response = await http
+  /// Cameras in the corridor between [origin] and [destination] (their bounding
+  /// box, padded) — lets routing avoid every camera on the route in one pass.
+  Future<List<LatLng>> fetchAlprForRoute(LatLng origin, LatLng destination) {
+    const double padDeg = 0.1; // ~7 mi padding around the O-D box
+    final double minLat =
+        math.min(origin.latitude, destination.latitude) - padDeg;
+    final double maxLat =
+        math.max(origin.latitude, destination.latitude) + padDeg;
+    final double minLon =
+        math.min(origin.longitude, destination.longitude) - padDeg;
+    final double maxLon =
+        math.max(origin.longitude, destination.longitude) + padDeg;
+    return fetchAlprInBbox(minLat, maxLat, minLon, maxLon);
+  }
+
+  // --- ONE-TIME OSM IMPORT (app-driven) ---
+
+  /// Fetches OSM-tagged ALPR camera nodes (with ids) inside a bbox via Overpass.
+  Future<List<Map<String, dynamic>>> _fetchOsmAlprNodes(
+    double minLat,
+    double maxLat,
+    double minLon,
+    double maxLon,
+  ) async {
+    // Overpass bbox order is (south,west,north,east).
+    final String query = '[out:json][timeout:120];'
+        'node["surveillance:type"="ALPR"]($minLat,$minLon,$maxLat,$maxLon);'
+        'out;';
+    final http.Response response = await http
           .post(
             Uri.parse(overpassApiUrl),
             headers: <String, String>{'User-Agent': osmUserAgent},
             body: <String, String>{'data': query},
           )
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 60));
+      if (response.statusCode != 200) {
+        throw Exception('Overpass returned HTTP ${response.statusCode}');
+      }
 
-      if (response.statusCode != 200) return <LatLng>[];
-      return _parseOverpassNodes(response.body);
-    } catch (_) {
-      return <LatLng>[];
+      final Map<String, dynamic> decoded =
+          jsonDecode(response.body) as Map<String, dynamic>;
+      final List<dynamic> elements =
+          decoded['elements'] as List<dynamic>? ?? <dynamic>[];
+      return elements
+          .map((dynamic e) {
+            final Map<String, dynamic> n = e as Map<String, dynamic>;
+            return <String, dynamic>{
+              'id': n['id'],
+              'lat': (n['lat'] as num).toDouble(),
+              'lon': (n['lon'] as num).toDouble(),
+            };
+          })
+          .where((Map<String, dynamic> m) => m['id'] != null)
+          .toList();
+  }
+
+  /// One-time sync: pulls OSM ALPR cameras within [radiusMiles] of [center] and
+  /// bulk-loads them into alpr_locations via the upsert_osm_alpr RPC. Returns a
+  /// diagnostic result so a "0 cameras" outcome explains itself.
+  Future<AlprImportResult> importOsmAlprForRegion(
+    LatLng center, {
+    double radiusMiles = 70,
+  }) async {
+    if (!SupabaseService.isConnected) {
+      return const AlprImportResult(
+          added: 0, fetched: 0, error: 'Offline — no Supabase connection.');
+    }
+    if (SupabaseService.client.auth.currentUser == null) {
+      return const AlprImportResult(
+          added: 0, fetched: 0, error: 'Not signed in yet — reopen the app.');
+    }
+    final (double minLat, double maxLat, double minLon, double maxLon) =
+        _boundingBox(center, radiusMiles);
+
+    // 1. Pull cameras from OSM.
+    List<Map<String, dynamic>> nodes;
+    try {
+      nodes = await _fetchOsmAlprNodes(minLat, maxLat, minLon, maxLon);
+    } catch (e) {
+      return AlprImportResult(added: 0, fetched: 0, error: 'OSM fetch failed: $e');
+    }
+    if (nodes.isEmpty) {
+      return const AlprImportResult(
+          added: 0, fetched: 0, error: 'OSM returned no cameras for this area.');
+    }
+
+    // 2. Bulk-load into the DB.
+    try {
+      final dynamic added = await SupabaseService.client.rpc(
+        'upsert_osm_alpr',
+        params: <String, dynamic>{'p_cameras': nodes},
+      );
+      return AlprImportResult(
+        added: (added as num?)?.toInt() ?? 0,
+        fetched: nodes.length,
+      );
+    } catch (e) {
+      return AlprImportResult(
+          added: 0, fetched: nodes.length, error: 'DB import failed: $e');
     }
   }
 
-  /// Merges [fetchCommunityAlprLocations] and [fetchOsmAlprLocations] into
-  /// a single deduplicated list. Used by RoutingService for exclude_polygons.
-  Future<List<LatLng>> fetchAllAlprLocations(LatLng center) async {
-    final List<Future<List<LatLng>>> futures = <Future<List<LatLng>>>[
-      fetchCommunityAlprLocations(center),
-      fetchOsmAlprLocations(center),
-    ];
-    final List<List<LatLng>> results = await Future.wait(futures);
-    final List<LatLng> merged = <LatLng>[
-      ...results[0],
-      ...results[1],
-    ];
-    return _deduplicate(merged);
-  }
+  // --- COMMUNITY REPORT ---
 
-  // --- REPORT ---
-
-  /// Reports a newly spotted ALPR camera at [position].
-  ///
-  /// New reports start with validation_score = 0. Community upvotes push it
-  /// toward is_validated = true. Frequent reporters earn progress toward the
-  /// Secret Agent archetype (Phase 4 ties this in via archetype_service).
+  /// Reports a newly spotted ALPR camera at [position]. Starts unvalidated;
+  /// community votes push it toward is_validated = true.
   Future<void> reportAlprLocation(
     LatLng position, {
     String? description,
   }) async {
-    if (!SupabaseService.isConnected) {
-      return; // Silently drop — offline reporting not queued yet.
-    }
+    if (!SupabaseService.isConnected) return;
     final String? uid = SupabaseService.client.auth.currentUser?.id;
     if (uid == null) return;
 
@@ -131,42 +200,12 @@ class AlprService {
       'reporter_id': uid,
       'latitude': position.latitude,
       'longitude': position.longitude,
+      'source': 'community',
       if (description != null) 'description': description,
     });
   }
 
-  // --- PRIVATE HELPERS ---
-
-  List<LatLng> _parseOverpassNodes(String body) {
-    try {
-      final Map<String, dynamic> decoded =
-          jsonDecode(body) as Map<String, dynamic>;
-      final List<dynamic> elements =
-          decoded['elements'] as List<dynamic>? ?? <dynamic>[];
-      return elements.map((dynamic e) {
-        final Map<String, dynamic> node = e as Map<String, dynamic>;
-        return LatLng(
-          (node['lat'] as num).toDouble(),
-          (node['lon'] as num).toDouble(),
-        );
-      }).toList();
-    } catch (_) {
-      return <LatLng>[];
-    }
-  }
-
-  /// Removes duplicate coordinates within 20 m of each other (OSM and
-  /// community data sometimes describe the same camera).
-  List<LatLng> _deduplicate(List<LatLng> points) {
-    const double dedupThresholdMeters = 20.0;
-    final List<LatLng> unique = <LatLng>[];
-    for (final LatLng p in points) {
-      final bool isDup = unique.any((LatLng u) =>
-          const Distance().as(LengthUnit.Meter, p, u) < dedupThresholdMeters);
-      if (!isDup) unique.add(p);
-    }
-    return unique;
-  }
+  // --- HELPERS ---
 
   (double, double, double, double) _boundingBox(
       LatLng center, double radiusMiles) {

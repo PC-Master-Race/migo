@@ -52,11 +52,21 @@ const Color migoPlum = Color(0xFF6D4C7D);
 /// convention drivers expect from navigation tools.
 const Color migoRouteGreen = Color(0xFF2BE84A);
 
+// --- DARK PALETTE (night driving) ---
+// Warm-leaning darks, not cold black — keeps the friendly identity at night.
+
+/// Dark scaffold background — deep warm near-black.
+const Color migoDarkBg = Color(0xFF14110F);
+
+/// Dark card/sheet surface — one step lighter than the background.
+const Color migoDarkSurface = Color(0xFF211C19);
+
+/// Primary text on dark surfaces — warm off-white (not pure white).
+const Color migoDarkInk = Color(0xFFF3E9DD);
+
 // --- THEME BUILDER ---
 
-/// Builds the app-wide [ThemeData] from the Migo palette and typography.
-/// Returns a light theme; dark mode is a Phase 7 polish item.
-/// TODO: [dark mode variant for night driving] [deferred to Phase 7 polish]
+/// Builds the app-wide light [ThemeData] from the Migo palette and typography.
 ThemeData buildBravoTheme() {
   final ColorScheme migoColorScheme = ColorScheme.fromSeed(
     seedColor: migoCoral,
@@ -77,6 +87,40 @@ ThemeData buildBravoTheme() {
     cardTheme: CardThemeData(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       color: Colors.white,
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: migoCoral,
+        foregroundColor: Colors.white,
+      ),
+    ),
+  );
+}
+
+/// Builds the app-wide dark [ThemeData] — same warm Migo accents, dark warm
+/// surfaces for night driving. Keeps coral/amber/teal so the brand survives.
+ThemeData buildBravoDarkTheme() {
+  final ColorScheme darkScheme = ColorScheme.fromSeed(
+    seedColor: migoCoral,
+    primary: migoCoral,
+    secondary: migoAmber,
+    tertiary: migoTeal,
+    surface: migoDarkSurface,
+    error: migoDanger,
+    brightness: Brightness.dark,
+  ).copyWith(
+    onSurface: migoDarkInk,
+  );
+
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: darkScheme,
+    scaffoldBackgroundColor: migoDarkBg,
+    fontFamily: migoFontFamily,
+    cardTheme: CardThemeData(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      color: migoDarkSurface,
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(

@@ -15,6 +15,7 @@ import '../services/tts_service.dart';
 import '../utils/map_utils.dart';
 import 'alpr_provider.dart';
 import 'location_provider.dart';
+import 'settings_provider.dart';
 
 // ============================================================
 // DESTINATION
@@ -95,7 +96,9 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
     // Fetch ALPR locations to avoid only when the toggle is on.
     List<LatLng> alpr = const <LatLng>[];
     if (prefs.avoidAlprCameras) {
-      alpr = await _ref.read(alprServiceProvider).fetchAllAlprLocations(origin);
+      alpr = await _ref
+          .read(alprServiceProvider)
+          .fetchAlprForRoute(origin, destination);
       if (token != _calcToken) return; // a newer request started during fetch
     }
 
@@ -245,8 +248,12 @@ final Provider<_NavAnnouncer> _navAnnouncerProvider =
 /// 59"); then it reminds the driver at thresholds that scale with leg length
 /// (long legs → 5 mi + 1 mi; short legs → 40% remaining + 1 mi).
 final Provider<void> ttsAnnouncerProvider = Provider<void>((Ref ref) {
+  // Voice guidance toggle is the single source of truth. When it's off, we
+  // reset the announcer and speak nothing — no reliance on the service's own
+  // Hive read, so "off" is always truly silent.
+  final bool voiceOn = ref.watch(ttsEnabledProvider);
   final NavigationState? navState = ref.watch(navigationStateProvider);
-  if (navState == null) {
+  if (!voiceOn || navState == null) {
     ref.read(_navAnnouncerProvider).reset();
     return;
   }

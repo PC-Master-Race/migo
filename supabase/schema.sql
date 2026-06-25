@@ -318,17 +318,26 @@ grant execute on function public.increment_hazard_dismissed(uuid) to authenticat
 -- ============================================================
 create table public.alpr_locations (
   id               uuid primary key default uuid_generate_v4(),
-  reporter_id      uuid not null references public.users(id) on delete cascade,
+  -- Nullable: OSM/DeFlock-imported cameras have no user reporter.
+  reporter_id      uuid references public.users(id) on delete cascade,
   latitude         double precision not null,
   longitude        double precision not null,
   -- Free-text description of the installation ("fixed gantry", "mobile van").
   description      text,
+  -- Where the row came from: 'osm' (bulk import) or 'community' (user report).
+  source           text not null default 'community',
+  -- OSM node id, for de-duping on re-import (NULL for community reports).
+  osm_node_id      bigint,
   -- Net community validation score. Positive = likely real, negative = likely wrong.
   validation_score integer not null default 0,
   -- True once validation_score crosses the confirmation threshold.
   is_validated     boolean not null default false,
   reported_at      timestamptz not null default now()
 );
+
+-- NULLs are distinct, so community rows (NULL node id) never collide;
+-- OSM rows de-dupe by their node id.
+create unique index idx_alpr_osm_node on public.alpr_locations (osm_node_id);
 
 alter table public.alpr_locations enable row level security;
 
@@ -342,6 +351,42 @@ create policy "alpr_locations: insert own"
   on public.alpr_locations
   for insert
   with check (auth.uid() = reporter_id);
+
+-- Bulk-upsert OSM cameras. SECURITY DEFINER so the trusted import bypasses the
+-- per-user insert RLS above. Input: a JSON array of {id, lat, lon}.
+create or replace function public.upsert_osm_alpr(p_cameras jsonb)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  affected integer := 0;
+  cam jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+  for cam in select * from jsonb_array_elements(p_cameras)
+  loop
+    insert into public.alpr_locations
+      (latitude, longitude, source, is_validated, validation_score, osm_node_id)
+    values (
+      (cam->>'lat')::double precision,
+      (cam->>'lon')::double precision,
+      'osm', true, 5, (cam->>'id')::bigint
+    )
+    on conflict (osm_node_id) do nothing;
+    if found then
+      affected := affected + 1;
+    end if;
+  end loop;
+  return affected;
+end;
+$$;
+
+revoke all on function public.upsert_osm_alpr(jsonb) from public;
+grant execute on function public.upsert_osm_alpr(jsonb) to authenticated;
 
 -- ============================================================
 -- TABLE: alpr_votes

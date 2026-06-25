@@ -42,7 +42,7 @@ final FutureProvider<List<LatLng>> nearbyAlprProvider =
   final dynamic pos = ref.read(positionStreamProvider).valueOrNull;
   if (pos == null) return <LatLng>[];
 
-  return ref.read(alprServiceProvider).fetchAllAlprLocations(
+  return ref.read(alprServiceProvider).fetchAlprNear(
         LatLng(pos.latitude as double, pos.longitude as double),
       );
 });

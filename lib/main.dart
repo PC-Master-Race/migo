@@ -13,6 +13,7 @@ import 'screens/onboarding_screen.dart';
 import 'screens/route_options_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
+import 'providers/settings_provider.dart';
 import 'services/supabase_service.dart';
 import 'services/bravo_service.dart';
 import 'services/tts_service.dart';
@@ -58,15 +59,18 @@ void unawaited(Future<void> future) {}
 // --- APP SHELL ---
 
 /// Root widget: theme + route table.
-class BravoMapsApp extends StatelessWidget {
+class BravoMapsApp extends ConsumerWidget {
   /// Creates the root app widget.
   const BravoMapsApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ThemeMode themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
       title: 'Migo',
       theme: buildBravoTheme(),
+      darkTheme: buildBravoDarkTheme(),
+      themeMode: themeMode,
       debugShowCheckedModeBanner: false,
       initialRoute: SplashScreen.routeName,
       routes: <String, WidgetBuilder>{

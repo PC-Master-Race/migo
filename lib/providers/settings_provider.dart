@@ -4,6 +4,7 @@
 // PRIVACY RULE (immutable): Every privacy-sensitive default is OFF.
 // The user opts in; we never opt them in silently.
 
+import 'package:flutter/material.dart'; // ThemeMode
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_ce/hive.dart';
 
@@ -22,6 +23,7 @@ const String settingsKeyHazardAlerts        = 'hazard_alerts_enabled';
 const String settingsKeyDefaultZoomMode     = 'default_zoom_mode';
 const String settingsKeyRoutePreference     = 'route_preference';
 const String settingsKeyDisplayName         = 'display_name';
+const String settingsKeyThemeMode           = 'theme_mode';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -129,6 +131,36 @@ class TtsEnabledNotifier extends ToggleNotifier {
 
   @override
   Future<void> persist(bool previous) async {}
+}
+
+// ---------------------------------------------------------------------------
+// Theme mode (Light / Dark / System) — defaults SYSTEM
+// ---------------------------------------------------------------------------
+
+final StateNotifierProvider<ThemeModeNotifier, ThemeMode> themeModeProvider =
+    StateNotifierProvider<ThemeModeNotifier, ThemeMode>(
+        (_) => ThemeModeNotifier());
+
+class ThemeModeNotifier extends StateNotifier<ThemeMode> {
+  ThemeModeNotifier() : super(_load());
+
+  static ThemeMode _load() {
+    final String raw =
+        _box.get(settingsKeyThemeMode, defaultValue: 'system') as String;
+    switch (raw) {
+      case 'light':
+        return ThemeMode.light;
+      case 'dark':
+        return ThemeMode.dark;
+      default:
+        return ThemeMode.system;
+    }
+  }
+
+  Future<void> set(ThemeMode mode) async {
+    state = mode;
+    await _box.put(settingsKeyThemeMode, mode.name); // 'light'/'dark'/'system'
+  }
 }
 
 // ---------------------------------------------------------------------------

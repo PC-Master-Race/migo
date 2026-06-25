@@ -155,8 +155,10 @@ class TtsService {
   // --- SETTINGS HELPERS ---
 
   bool _isTtsEnabled() {
+    // Default OFF, matching the settings toggle's default. Voice guidance is
+    // opt-in, so an unwritten value must never mean "on".
     return Hive.box<dynamic>(hiveBoxSettings)
-        .get(hiveKeyTtsEnabled, defaultValue: true) as bool;
+        .get(hiveKeyTtsEnabled, defaultValue: false) as bool;
   }
 
   String? _elevenLabsApiKey() {

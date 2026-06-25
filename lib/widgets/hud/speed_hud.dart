@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/location_provider.dart';
 import '../../providers/speed_limit_provider.dart';
-import '../../theme/bravo_theme.dart';
 
 // --- WIDGET ---
 
@@ -21,6 +20,10 @@ class SpeedHud extends ConsumerWidget {
     final int currentSpeedMph = ref.watch(displaySpeedMphProvider);
     final String speedLimitLabel = ref.watch(speedLimitLabelProvider);
 
+    // Theme-aware text color so the readout stays legible on the Card surface
+    // in both light and dark mode (dark ink on light card / light ink on dark).
+    final Color ink = Theme.of(context).colorScheme.onSurface;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -30,18 +33,18 @@ class SpeedHud extends ConsumerWidget {
             // Current speed — the dominant element, readable at a glance.
             Text(
               '$currentSpeedMph',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 36,
                 fontWeight: FontWeight.w800,
-                color: migoInk,
+                color: ink,
               ),
             ),
-            const Text('mph', style: TextStyle(fontSize: 12, color: migoInk)),
+            Text('mph', style: TextStyle(fontSize: 12, color: ink)),
             const SizedBox(height: 4),
             // Speed limit from OSM — gracefully "Unknown" when missing.
             Text(
               'Limit: $speedLimitLabel',
-              style: const TextStyle(fontSize: 13, color: migoInk),
+              style: TextStyle(fontSize: 13, color: ink),
             ),
           ],
         ),
