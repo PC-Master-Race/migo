@@ -219,6 +219,7 @@ class NavigationState {
   const NavigationState({
     required this.currentStepIndex,
     required this.currentStep,
+    required this.nextStep,
     required this.distanceToNextManeuverMeters,
     required this.isLastStep,
     required this.distanceRemainingMeters,
@@ -228,8 +229,12 @@ class NavigationState {
   /// Index of the step currently being navigated.
   final int currentStepIndex;
 
-  /// The active step (instruction, type, etc.).
+  /// The active step (instruction, type, etc.) — the next maneuver ahead.
   final ManeuverStep currentStep;
+
+  /// The step after [currentStep], or null if this is the last. Used to show
+  /// and pre-announce what's coming up next.
+  final ManeuverStep? nextStep;
 
   /// Distance in meters from the user's position to the next maneuver point.
   /// Shown in the HUD.

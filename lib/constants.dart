@@ -62,6 +62,10 @@ const double mapDefaultZoom = 15.0;
 /// matches the close street-level view Waze opens to when location is acquired.
 const double mapFirstFixZoom = 17.0;
 
+/// Zoom the camera snaps to when navigation STARTS. A little further out than
+/// the first-fix zoom so you can see more of the road ahead. Tunable.
+const double mapNavigationZoom = 16.5;
+
 /// Fallback map center before the first GPS fix: geographic center of the
 /// contiguous US. Replaced by the real position the moment GPS reports in.
 const double fallbackCenterLatitude = 39.8283;
@@ -95,10 +99,17 @@ const double metersPerSecondToMph = 2.23694;
 // --- LOCATION TRACKING ---
 
 /// Minimum movement (meters) before a new GPS position event fires.
-/// 3 m gives more frequent fixes so the avatar hops in smaller steps. The real
-/// smoothness fix is position interpolation between fixes (see TODO in the
-/// user marker) — this just reduces the gap between raw updates.
+/// Retained for non-navigation contexts; navigation uses time-based polling
+/// (see [locationIntervalMs]) with no distance filter for steady updates.
 const int locationDistanceFilterMeters = 3;
+
+/// Desired interval (ms) between GPS fixes. ~1s matches what turn-by-turn apps
+/// poll at — frequent enough to track turns and feed smooth prediction.
+const int locationIntervalMs = 1000;
+
+/// Cap (seconds) on how far the avatar will dead-reckon forward from the last
+/// fix without a fresh one — prevents it flinging across the map on signal loss.
+const double markerPredictMaxSeconds = 3.0;
 
 /// Speeds below this (mph) display as 0 on the HUD — raw GPS jitter while
 /// standing still otherwise shows phantom 1–2 mph readings.
@@ -114,9 +125,10 @@ const double speedJitterFloorMph = 2.0;
 const double kalmanMinAccuracyMetres = 3.0;
 
 /// Assumed movement "process noise" (metres/sec). Higher = trusts new fixes
-/// faster (more responsive, less smooth); lower = smoother but laggier.
-/// ~6 is a balanced value for road driving.
-const double kalmanProcessNoiseMetresPerSec = 6.0;
+/// faster (more responsive, less laggy); lower = smoother but laggier. Raised
+/// to 12 so the filter tracks real driving promptly — the visual smoothness
+/// now comes from the marker's velocity prediction, not heavy GPS smoothing.
+const double kalmanProcessNoiseMetresPerSec = 12.0;
 
 /// Max plausible travel speed (m/s) for the outlier check. 70 m/s ≈ 156 mph;
 /// a fix implying faster travel than this is treated as a bad signal.
@@ -273,6 +285,26 @@ const double offRouteThresholdMeters = 40.0;
 /// Meters before the next maneuver at which the TTS instruction fires.
 /// 200 m gives ~10 s of warning at 45 mph — enough to change lanes.
 const int maneuverAlertDistanceMeters = 200;
+
+// --- TURN ANNOUNCEMENT TIMING (tiered, much earlier than a single 200m alert) ---
+// On entering a leg we announce a lead-in ("In N, take exit 59"). Then we
+// remind the driver as they approach, using thresholds that depend on leg
+// length so highway exits get plenty of warning.
+
+/// Leg length (miles) at/above which a leg counts as "long" and uses fixed
+/// far/near reminders instead of a percentage.
+const double navLongLegMiles = 10.0;
+
+/// For long legs: first reminder this many miles from the maneuver.
+const double navLongLegFarAlertMiles = 5.0;
+
+/// For short legs (<[navLongLegMiles]): first reminder at this fraction of the
+/// leg remaining (e.g. 0.4 = when 40% of the leg is left).
+const double navShortLegRemainingFraction = 0.4;
+
+/// Final "you're almost there" reminder this many miles from the maneuver
+/// (applies to every leg).
+const double navNearAlertMiles = 1.0;
 
 /// Meters from a maneuver point at which the app advances to the next step.
 /// 25 m ≈ passing through the intersection.

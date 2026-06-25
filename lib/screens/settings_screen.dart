@@ -303,9 +303,13 @@ class _ChipRow<T> extends StatelessWidget {
           selected: selected,
           onSelected: (_) => onSelect(v),
           selectedColor: migoCoral,
-          backgroundColor: Colors.white.withValues(alpha: 0.08),
+          // Solid dark background (opaque) + no M3 surface tint so the chip can
+          // never pick up the light app-theme surface (the white-on-white bug).
+          backgroundColor: const Color(0xFF2A2A3A),
+          surfaceTintColor: Colors.transparent,
+          showCheckmark: false,
           labelStyle: TextStyle(
-              color: selected ? Colors.white : Colors.white.withValues(alpha: 0.65),
+              color: selected ? Colors.white : Colors.white.withValues(alpha: 0.7),
               fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
               fontSize: 12),
           side: BorderSide.none,

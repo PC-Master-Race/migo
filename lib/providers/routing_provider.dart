@@ -12,6 +12,7 @@ import '../models/route_model.dart';
 import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
 import '../services/tts_service.dart';
+import '../utils/map_utils.dart';
 import 'location_provider.dart';
 
 // ============================================================
@@ -182,57 +183,44 @@ final Provider<NavigationState?> navigationStateProvider =
   if (position == null) return null;
 
   final LatLng userPoint = LatLng(position.latitude, position.longitude);
+  final List<LatLng> wp = route.waypoints;
+  if (wp.length < 2) return null;
 
-  // Find the step whose maneuver point is closest to the user. This is a
-  // simple but effective heuristic: among all maneuver waypoints, the nearest
-  // one that still lies ahead of us is the current target.
-  int bestIdx = 0;
-  double bestDist = double.infinity;
+  // Where the user is ALONG the route (index of the nearest segment). The
+  // current maneuver is then the first one whose vertex lies AHEAD of us — so
+  // navigation advances the moment we pass a turn, instead of clinging to
+  // whichever turn happens to be closest (the "stuck on previous step" bug).
+  final int segIdx = nearestSegmentIndex(userPoint, wp);
+  final int nextVertex = (segIdx + 1).clamp(0, wp.length - 1);
 
-  for (int i = 0; i < route.steps.length; i++) {
-    final int shapeIdx = route.steps[i].shapeIndex;
-    if (shapeIdx >= route.waypoints.length) continue;
-    final LatLng maneuverPoint = route.waypoints[shapeIdx];
-    final double dist =
-        const Distance().as(LengthUnit.Meter, userPoint, maneuverPoint);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestIdx = i;
-    }
-  }
+  int stepIdx =
+      route.steps.indexWhere((ManeuverStep s) => s.shapeIndex > segIdx);
+  if (stepIdx == -1) stepIdx = route.steps.length - 1;
+  final ManeuverStep step = route.steps[stepIdx];
+  final ManeuverStep? next =
+      stepIdx + 1 < route.steps.length ? route.steps[stepIdx + 1] : null;
 
-  // If we're within stepAdvanceRadiusMeters of the current maneuver point
-  // and there's a next step, advance to it.
-  if (bestDist <= stepAdvanceRadiusMeters &&
-      bestIdx < route.steps.length - 1) {
-    bestIdx++;
-    // Recalculate distance to the new step.
-    final int nextShapeIdx = route.steps[bestIdx].shapeIndex;
-    if (nextShapeIdx < route.waypoints.length) {
-      bestDist = const Distance().as(
-        LengthUnit.Meter,
-        userPoint,
-        route.waypoints[nextShapeIdx],
-      );
-    }
-  }
+  // Along-route distances (follow the road, not a straight line): user → the
+  // next polyline vertex, then vertex → maneuver / → end.
+  final int maneuverVertex = step.shapeIndex.clamp(0, wp.length - 1);
+  final double toNextVertex =
+      const Distance().as(LengthUnit.Meter, userPoint, wp[nextVertex]);
+  final double distToManeuver =
+      toNextVertex + routeDistanceMeters(wp, nextVertex, maneuverVertex);
+  final double distRemaining =
+      toNextVertex + routeDistanceMeters(wp, nextVertex, wp.length - 1);
 
-  // Sum remaining step durations for ETA.
+  // Remaining time: sum of the remaining steps' durations (approx).
   final double timeRemaining = route.steps
-      .skip(bestIdx)
+      .skip(stepIdx)
       .fold(0.0, (double sum, ManeuverStep s) => sum + s.durationSeconds);
 
-  // Approximate remaining distance: sum of remaining step distances.
-  final double distRemaining = route.steps
-      .skip(bestIdx)
-      .fold(0.0, (double sum, ManeuverStep s) => sum + s.distanceMiles) *
-      metersPerMile;
-
   return NavigationState(
-    currentStepIndex: bestIdx,
-    currentStep: route.steps[bestIdx],
-    distanceToNextManeuverMeters: bestDist,
-    isLastStep: bestIdx == route.steps.length - 1,
+    currentStepIndex: stepIdx,
+    currentStep: step,
+    nextStep: next,
+    distanceToNextManeuverMeters: distToManeuver,
+    isLastStep: stepIdx == route.steps.length - 1,
     distanceRemainingMeters: distRemaining,
     timeRemainingSeconds: timeRemaining,
   );
@@ -242,26 +230,96 @@ final Provider<NavigationState?> navigationStateProvider =
 // TTS — ANNOUNCE UPCOMING MANEUVERS
 // ============================================================
 
-/// Side-effect provider: speaks the next maneuver instruction via [TtsService]
-/// when the user is within [maneuverAlertDistanceMeters] of it.
-/// Skips the announcement if TTS is disabled or if the same instruction was
-/// already spoken (handled inside TtsService itself).
+/// Holds the announcer so its per-step state survives provider rebuilds.
+final Provider<_NavAnnouncer> _navAnnouncerProvider =
+    Provider<_NavAnnouncer>((Ref ref) => _NavAnnouncer());
+
+/// Side-effect provider (watched by map_screen): drives tiered, EARLY turn
+/// announcements. On entering a leg it speaks a lead-in ("In N, take exit
+/// 59"); then it reminds the driver at thresholds that scale with leg length
+/// (long legs → 5 mi + 1 mi; short legs → 40% remaining + 1 mi).
 final Provider<void> ttsAnnouncerProvider = Provider<void>((Ref ref) {
   final NavigationState? navState = ref.watch(navigationStateProvider);
-  if (navState == null) return;
-  if (navState.distanceToNextManeuverMeters > maneuverAlertDistanceMeters) return;
-  if (navState.isLastStep &&
-      navState.distanceToNextManeuverMeters > stepAdvanceRadiusMeters * 2) {
-    return; // Don't announce "You have arrived" until very close.
+  if (navState == null) {
+    ref.read(_navAnnouncerProvider).reset();
+    return;
+  }
+  ref.read(_navAnnouncerProvider).onUpdate(navState);
+});
+
+/// Tracks which announcements have already fired for the current leg and
+/// decides what to speak next. Speaks via [TtsService], which respects the
+/// user's voice-guidance setting and won't repeat identical text.
+class _NavAnnouncer {
+  int? _stepIndex;
+  double _legMeters = 0; // distance-to-maneuver captured when the leg began
+  final Set<String> _fired = <String>{};
+
+  void reset() {
+    _stepIndex = null;
+    _legMeters = 0;
+    _fired.clear();
   }
 
-  final String instruction = navState.currentStep.verbalInstruction;
-  // Fire-and-forget — TTS is non-blocking.
-  Future<void>.microtask(() async {
-    final TtsService tts = await TtsService.instance();
-    await tts.speak(instruction);
-  });
-});
+  void onUpdate(NavigationState nav) {
+    final double remaining = nav.distanceToNextManeuverMeters;
+
+    // Entered a new leg → capture its length, reset, give the lead-in. This is
+    // the "you just turned, here's what's next" feedback.
+    if (nav.currentStepIndex != _stepIndex) {
+      _stepIndex = nav.currentStepIndex;
+      _legMeters = remaining;
+      _fired.clear();
+      _speak('In ${formatUsDistance(remaining, spoken: true)}, '
+          '${_instr(nav.currentStep)}');
+      return;
+    }
+
+    // Approaching reminders (far → near).
+    for (final double tier in _tierMeters(_legMeters)) {
+      final String key = 't${tier.round()}';
+      if (remaining <= tier && !_fired.contains(key)) {
+        _fired.add(key);
+        _speak('In ${formatUsDistance(remaining, spoken: true)}, '
+            '${_instr(nav.currentStep)}');
+      }
+    }
+  }
+
+  /// Reminder distances (meters), filtered to ones that make sense for the leg.
+  List<double> _tierMeters(double legMeters) {
+    final double legMiles = legMeters / metersPerMile;
+    final List<double> miles = legMiles >= navLongLegMiles
+        ? <double>[navLongLegFarAlertMiles, navNearAlertMiles]
+        : <double>[legMiles * navShortLegRemainingFraction, navNearAlertMiles];
+
+    final List<double> out = <double>[];
+    for (final double m in miles) {
+      final double meters = m * metersPerMile;
+      // Skip thresholds basically at the leg start (the lead-in covered that)
+      // and dedupe ones within ~250 m of each other.
+      if (meters < legMeters - 120 &&
+          m > 0.1 &&
+          out.every((double o) => (o - meters).abs() > 250)) {
+        out.add(meters);
+      }
+    }
+    out.sort((double a, double b) => b.compareTo(a)); // far → near
+    return out;
+  }
+
+  String _instr(ManeuverStep s) =>
+      s.instruction.isNotEmpty ? s.instruction : s.verbalInstruction;
+
+  void _speak(String text) {
+    if (text.trim().isEmpty) return;
+    // Fire-and-forget — TTS is non-blocking.
+    Future<void>.microtask(() async {
+      final TtsService tts = await TtsService.instance();
+      await tts.speak(text);
+    });
+  }
+}
 
 // ============================================================
 // GEOCODING

@@ -341,6 +341,39 @@ double distanceToPolylineMeters(LatLng point, List<LatLng> polyline) {
   return minDist;
 }
 
+/// Returns the START index of the polyline segment nearest to [point]. This is
+/// the user's position ALONG the route — used to decide which maneuver is next
+/// (the first one whose vertex is past this index), so navigation advances as
+/// the user passes each turn instead of snapping to whichever turn is closest.
+int nearestSegmentIndex(LatLng point, List<LatLng> polyline) {
+  if (polyline.length < 2) return 0;
+  int best = 0;
+  double minDist = double.infinity;
+  for (int i = 0; i < polyline.length - 1; i++) {
+    final double d =
+        _distanceToSegmentMeters(point, polyline[i], polyline[i + 1]);
+    if (d < minDist) {
+      minDist = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/// Sums the along-route distance (meters) between polyline indices
+/// [fromIdx] and [toIdx]. Used for "distance to the next maneuver" and
+/// "distance remaining" so they follow the road, not a straight line.
+double routeDistanceMeters(List<LatLng> polyline, int fromIdx, int toIdx) {
+  if (polyline.length < 2) return 0;
+  final int start = fromIdx.clamp(0, polyline.length - 1);
+  final int end = toIdx.clamp(0, polyline.length - 1);
+  double sum = 0;
+  for (int i = start; i < end; i++) {
+    sum += const Distance().as(LengthUnit.Meter, polyline[i], polyline[i + 1]);
+  }
+  return sum;
+}
+
 /// Distance from [p] to the segment [a]→[b] in meters, using a flat-earth
 /// approximation (accurate to <0.1% for distances under a few km — route
 /// geometry is always within a few km of the user).

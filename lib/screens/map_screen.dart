@@ -32,6 +32,7 @@ import '../providers/routing_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/map_service.dart';
 import '../theme/bravo_theme.dart';
+import '../utils/map_utils.dart'; // formatUsDistance
 import '../widgets/cartoon_avatar/user_location_marker.dart';
 import '../widgets/cartoon_avatar/smooth_user_marker_layer.dart';
 import '../widgets/hud/speed_hud.dart';
@@ -184,12 +185,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// Base 60 dp at zoom 15 — roughly Waze icon size at street level.
   /// Scales gently: 1.4× per zoom level, clamped 30–100 dp.
   double _markerSizeForZoom(double zoom) {
-    const double base = 60.0;
+    // ~25% smaller than before (base 60→45, cap 80→60) per drive feedback.
+    const double base = 45.0;
     const double refZoom = 15.0;
     final double scale = math.pow(1.4, zoom - refZoom).toDouble();
-    // Lower cap (80) keeps the close-up avatar from getting huge; the 30 floor
-    // keeps far-away sizing unchanged. Tune the 80 down (e.g. 70) if still big.
-    return (base * scale).clamp(30.0, 80.0);
+    return (base * scale).clamp(22.0, 60.0);
   }
 
   /// Returns only the part of [waypoints] AHEAD of the user. The already-driven
@@ -419,7 +419,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _isNavigating = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          _mapController.move(_mapController.camera.center, 18.0);
+          _mapController.move(_mapController.camera.center, mapNavigationZoom);
         }
       });
     } else if (!nowNavigating && _isNavigating) {
@@ -506,9 +506,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               child: RecenterButton(onPressed: _recenterOnUser),
             ),
 
-          // Settings gear + layer toggles — hidden while the search-results
-          // dropdown is open so they never cover the results' Save icons.
-          if (!_showSearchResults) ...<Widget>[
+          // Settings gear + layer toggles — hidden while searching (so they
+          // don't cover the results' Save icons) AND while navigating (so they
+          // don't cover the turn-by-turn banner at the top).
+          if (!_showSearchResults && !nowNavigating) ...<Widget>[
             // Settings gear — below the search bar, not overlapping it.
             Positioned(
               top: statusBarH + 68,
@@ -555,6 +556,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         initialZoom: MapService.startingZoomForMode(defaultMode),
         minZoom: mapMinZoom,
         maxZoom: mapMaxZoom,
+        // Lock the map to NORTH-UP: all gestures except rotation. The avatar
+        // then moves in its true compass direction (north = up, east = right),
+        // and a stray two-finger twist can't knock the map off-north.
+        // TODO: [optional heading-up mode toggle in settings] [deferred].
+        interactionOptions: const InteractionOptions(
+          flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+        ),
         onMapEvent: _handleMapEvent,
       ),
       children: <Widget>[
@@ -1403,54 +1411,80 @@ class _ManeuverBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final ManeuverStep step = navState.currentStep;
     final double distM = navState.distanceToNextManeuverMeters;
+    final ManeuverStep? next = navState.nextStep;
 
-    final String distLabel = distM < 50
-        ? 'Now'
-        : distM < 1000
-            ? '${distM.round()} m'
-            : '${(distM / 1000).toStringAsFixed(1)} km';
+    // US units (feet/miles), bigger and bolder for at-a-glance reading.
+    final String distLabel = distM < 50 ? 'Now' : formatUsDistance(distM);
 
     return Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(18),
       color: migoInk,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            _ManeuverIcon(type: step.type),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                _ManeuverIcon(type: step.type),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
                     step.instruction,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      height: 1.15,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (navState.isLastStep)
-                    const Text(
-                      'You have arrived',
-                      style: TextStyle(color: migoAmber, fontSize: 12),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  distLabel,
+                  style: const TextStyle(
+                    color: migoAmber,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            // Upcoming step preview — "Then ..." so the driver knows what's next.
+            if (next != null && !navState.isLastStep) ...<Widget>[
+              const SizedBox(height: 8),
+              Row(
+                children: <Widget>[
+                  const Icon(Icons.subdirectory_arrow_right_rounded,
+                      color: Colors.white38, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Then ${next.instruction}',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              distLabel,
-              style: const TextStyle(
-                color: migoAmber,
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
+            ],
+            if (navState.isLastStep)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  'You have arrived',
+                  style: TextStyle(color: migoAmber, fontSize: 14),
+                ),
               ),
-            ),
           ],
         ),
       ),

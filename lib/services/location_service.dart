@@ -2,6 +2,7 @@
 // Wraps geolocator behind one interface so platform details never leak into
 // screens. Background-capable: stream settings request continued updates.
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:geolocator/geolocator.dart';
 
 import '../constants.dart';
@@ -47,10 +48,7 @@ class LocationService {
   /// downstream (avatar, camera, speed-limit, family sharing) gets the clean
   /// version transparently.
   Stream<Position> positionStream() {
-    const LocationSettings settings = LocationSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: locationDistanceFilterMeters,
-    );
+    final LocationSettings settings = _navigationLocationSettings();
     final LocationKalmanFilter filter = LocationKalmanFilter();
     return Geolocator.getPositionStream(locationSettings: settings)
         .map((Position raw) {
@@ -62,6 +60,36 @@ class LocationService {
       );
       return _withLatLng(raw, smoothed[0], smoothed[1]);
     });
+  }
+
+  /// Platform-specific, navigation-grade location settings: highest accuracy,
+  /// no distance filter, and a ~1s time interval so fixes arrive steadily (like
+  /// a turn-by-turn app). On Android we keep the Google fused provider
+  /// (forceLocationManager: false); on Apple we use the automotive activity
+  /// type so iOS optimizes for driving.
+  LocationSettings _navigationLocationSettings() {
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return AndroidSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 0,
+          intervalDuration: const Duration(milliseconds: locationIntervalMs),
+          forceLocationManager: false,
+        );
+      case TargetPlatform.iOS:
+      case TargetPlatform.macOS:
+        return AppleSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 0,
+          activityType: ActivityType.automotiveNavigation,
+          pauseLocationUpdatesAutomatically: false,
+        );
+      default:
+        return const LocationSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 0,
+        );
+    }
   }
 
   /// Returns a copy of [p] with its latitude/longitude replaced by the

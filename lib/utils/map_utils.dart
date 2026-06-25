@@ -8,6 +8,27 @@ import 'package:latlong2/latlong.dart';
 
 import '../constants.dart';
 
+// --- DISTANCE FORMATTING (US units) ---
+
+/// Formats [meters] as a US-style distance string for the turn banner and
+/// voice. Under ~0.1 mi it shows feet (rounded to the nearest 10 ft); under
+/// 10 mi it shows one decimal of miles; above that, whole miles.
+/// When [spoken] is true it uses full words ("feet"/"miles") so the TTS engine
+/// reads them naturally instead of saying "ft"/"mi".
+String formatUsDistance(double meters, {bool spoken = false}) {
+  final double miles = meters / metersPerMile;
+  if (miles < 0.1) {
+    final int feet = ((meters * 3.28084) / 10).round() * 10; // nearest 10 ft
+    return spoken ? '$feet feet' : '$feet ft';
+  }
+  if (miles < 10) {
+    final String n = miles.toStringAsFixed(1);
+    return spoken ? '$n miles' : '$n mi';
+  }
+  final int whole = miles.round();
+  return spoken ? '$whole miles' : '$whole mi';
+}
+
 // --- TILE COORDINATE ---
 
 /// A single slippy-map tile address (z/x/y), the unit of OSM tile fetching.
