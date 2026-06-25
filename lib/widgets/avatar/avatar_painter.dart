@@ -776,10 +776,15 @@ class AvatarPainter extends CustomPainter {
   }
 
   void _drawHoodie(Canvas canvas, Offset head, double r) {
-    // Hood behind head
+    // The hood is a larger circle around the head. Since accessories paint
+    // AFTER the face, we redraw the head fill (so it sits inside the hood) and
+    // then re-draw the eyes + mouth on top — otherwise the hood erases the face.
+    final _ArchetypeConfig cfg = _kConfigs[archetype]!;
     final Paint hoodPaint = Paint()..color = const Color(0xFF616161);
     canvas.drawCircle(head, r * 1.10, hoodPaint);
-    canvas.drawCircle(head, r, Paint()..color = _kConfigs[archetype]!.headColor);
+    canvas.drawCircle(head, r, Paint()..color = cfg.headColor);
+    _drawEyes(canvas, head, r, cfg.eyeStyle);
+    _drawMouth(canvas, head, r, cfg.mouthStyle);
     // Hood strings
     canvas.drawLine(
         head + Offset(-r * 0.14, r * 0.65),

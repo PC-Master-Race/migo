@@ -248,6 +248,24 @@ const String photonSearchUrl = 'https://photon.komoot.io/api/';
 /// Max results returned by a geocoding search.
 const int nominatimMaxResults = 5;
 
+// --- GEOCODING SEARCH SCOPE (local-first) ---
+// Search near the user first; only widen to the whole US if nothing's found,
+// so results are never worldwide. Tunable — can later be made user/region based.
+
+/// Radius (miles) for the first, LOCAL geocoding pass around the user.
+const double localGeocodeRadiusMiles = 100.0;
+
+/// Approx. degrees of latitude per mile (1° latitude ≈ 69 miles). Used to size
+/// the local bounding box.
+const double degreesLatitudePerMile = 1.0 / 69.0;
+
+/// Continental-US bounding box (lon/lat) used as the WIDE fallback so results
+/// stay within the USA instead of going worldwide.
+const double usBboxMinLon = -125.0;
+const double usBboxMinLat = 24.0;
+const double usBboxMaxLon = -66.0;
+const double usBboxMaxLat = 50.0;
+
 /// Meters from the route polyline beyond which the user is considered off-route
 /// and recalculation is triggered. 40 m covers GPS jitter + minor lane drift.
 const double offRouteThresholdMeters = 40.0;

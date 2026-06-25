@@ -99,6 +99,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _showSearchResults = false;
   bool _hasHadFirstFix = false;
 
+  /// The place the user last chose as a destination, kept so tapping the
+  /// destination pin can offer to save it (Home/Work/Favorite).
+  GeocodingResult? _selectedDestination;
+
   /// Prevents queueing multiple off-route recalculations per render cycle.
   /// Resets after 10 s so future off-route events can still trigger one.
   bool _recalcQueued = false;
@@ -218,6 +222,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void _selectSavedLocation(SavedLocation loc) {
     _searchFocus.unfocus();
     _searchController.text = loc.label;
+    _selectedDestination = GeocodingResult(
+      displayName: loc.label,
+      shortName: loc.label,
+      position: loc.position,
+    );
     setState(() => _showSearchResults = false);
     ref.read(destinationProvider.notifier).state = loc.position;
     final Position? pos = ref.read(positionStreamProvider).valueOrNull;
@@ -244,6 +253,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       isScrollControlled: true,
       builder: (_) => _SaveLocationSheet(result: result),
     );
+  }
+
+  /// Tapping the destination pin offers to save that place. Uses the chosen
+  /// search result when we have it, otherwise builds a generic pin entry.
+  void _onDestinationPinTap(LatLng destination) {
+    final GeocodingResult target = _selectedDestination ??
+        GeocodingResult(
+          displayName: 'Dropped pin',
+          shortName: 'Dropped pin',
+          position: destination,
+        );
+    _showSaveLocationSheet(context, target);
   }
 
   // --- SPEECH TO TEXT ---
@@ -298,6 +319,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void _selectDestination(GeocodingResult result) {
     _searchFocus.unfocus();
     _searchController.text = result.shortName;
+    _selectedDestination = result;
     setState(() => _showSearchResults = false);
 
     ref.read(destinationProvider.notifier).state = result.position;
@@ -373,7 +395,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // Off-route: trigger one recalculation then wait 10 s before allowing
     // another. _recalcQueued prevents multiple calls per render cycle.
     final bool isOffRoute = ref.watch(offRouteProvider);
-    if (isOffRoute && route != null && !_recalcQueued) {
+    // Only auto-recalculate while actually MOVING. A parked/stationary car
+    // sitting slightly off the route line must not trigger an endless recalc
+    // loop (the cause of the "recalculating" spam + camera flashing).
+    final bool isMoving = (position?.speed ?? 0) > tripStopSpeedMps;
+    if (isOffRoute && route != null && isMoving && !_recalcQueued) {
       _recalcQueued = true;
       // Count the reroute toward this trip's archetype metrics (Chaos/Scout).
       ref.read(drivingSessionTrackerProvider).noteReroute();
@@ -384,9 +410,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       });
     }
 
-    // Auto-zoom when navigation starts/ends so the street level is always
-    // readable without a perspective tilt. 18 = individual buildings visible.
-    final bool nowNavigating = navState != null;
+    // Auto-zoom when navigation starts/ends. Base this on whether a DESTINATION
+    // is set — NOT on navState, which momentarily goes null every time the route
+    // recalculates. Tying it to navState made the camera snap out of nav-zoom
+    // (18→17→18) on every recalc — the "flash" half of the loop bug.
+    final bool nowNavigating = ref.watch(destinationProvider) != null;
     if (nowNavigating && !_isNavigating) {
       _isNavigating = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -478,19 +506,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               child: RecenterButton(onPressed: _recenterOnUser),
             ),
 
-          // Settings gear — below the search bar, not overlapping it.
-          Positioned(
-            top: statusBarH + 68,
-            right: 16,
-            child: _SettingsButton(context: context),
-          ),
+          // Settings gear + layer toggles — hidden while the search-results
+          // dropdown is open so they never cover the results' Save icons.
+          if (!_showSearchResults) ...<Widget>[
+            // Settings gear — below the search bar, not overlapping it.
+            Positioned(
+              top: statusBarH + 68,
+              right: 16,
+              child: _SettingsButton(context: context),
+            ),
 
-          // Layer toggle panel — stacked below the settings gear.
-          Positioned(
-            top: statusBarH + 112,
-            right: 16,
-            child: _buildLayerToggles(context),
-          ),
+            // Layer toggle panel — stacked below the settings gear.
+            Positioned(
+              top: statusBarH + 112,
+              right: 16,
+              child: _buildLayerToggles(context),
+            ),
+          ],
 
           // Hazard alert banners — below maneuver banner when navigating.
           Positioned(
@@ -573,7 +605,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 point: route.destination,
                 width: 32,
                 height: 32,
-                child: const _DestinationMarker(),
+                // Tap the pin to save this place (Home/Work/Favorite).
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _onDestinationPinTap(route.destination),
+                  child: const _DestinationMarker(),
+                ),
               ),
             ],
           ),

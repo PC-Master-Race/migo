@@ -16,6 +16,7 @@
 // servers] [deferred: needs server infrastructure decision]
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
@@ -30,14 +31,15 @@ import '../models/route_model.dart';
 class GeocodingService {
   /// Searches for [query], biased toward [userPosition].
   ///
-  /// Strategy:
-  ///  • Street addresses (query starts with a house number, e.g. "123 Main
-  ///    St") → Nominatim first. It returns the actual numbered address;
-  ///    Photon tends to return just the street with no number.
-  ///  • Everything else (businesses, POIs, place names) → Photon first, for
-  ///    its strong distance-first ranking.
-  ///  In both cases the other geocoder is used as a fallback if the first
-  ///  returns nothing.
+  /// LOCAL-FIRST strategy:
+  ///  1. Search within [localGeocodeRadiusMiles] of the user. Only if that
+  ///     finds nothing do we widen.
+  ///  2. Widen to the continental US (never worldwide).
+  ///
+  /// Within each pass: street addresses (query starts with a house number) go
+  /// to Nominatim first (it returns the numbered address); everything else goes
+  /// to Photon first (distance-first ranking). The other engine is the
+  /// fallback if the first finds nothing.
   ///
   /// Returns up to [nominatimMaxResults] results. Empty list on error.
   Future<List<GeocodingResult>> search(
@@ -50,17 +52,44 @@ class GeocodingService {
     // A leading digit means the user is typing a street address.
     final bool looksLikeAddress = RegExp(r'^\s*\d').hasMatch(q);
 
-    if (looksLikeAddress) {
-      final List<GeocodingResult> nominatim =
-          await _nominatimSearch(q, userPosition: userPosition);
-      if (nominatim.isNotEmpty) return nominatim;
-      return _photonSearch(q, userPosition: userPosition);
+    // Runs the preferred engine for [q] inside [bbox], falling back to the
+    // other engine if the first finds nothing.
+    Future<List<GeocodingResult>> runPass(_GeoBBox bbox) async {
+      if (looksLikeAddress) {
+        final List<GeocodingResult> n = await _nominatimSearch(q,
+            userPosition: userPosition, bbox: bbox);
+        if (n.isNotEmpty) return n;
+        return _photonSearch(q, userPosition: userPosition, bbox: bbox);
+      }
+      final List<GeocodingResult> p =
+          await _photonSearch(q, userPosition: userPosition, bbox: bbox);
+      if (p.isNotEmpty) return p;
+      return _nominatimSearch(q, userPosition: userPosition, bbox: bbox);
     }
 
-    final List<GeocodingResult> photonResults =
-        await _photonSearch(q, userPosition: userPosition);
-    if (photonResults.isNotEmpty) return photonResults;
-    return _nominatimSearch(q, userPosition: userPosition);
+    // --- Pass 1: LOCAL — within localGeocodeRadiusMiles of the user. ---
+    if (userPosition != null) {
+      final List<GeocodingResult> local =
+          await runPass(_bboxAround(userPosition, localGeocodeRadiusMiles));
+      if (local.isNotEmpty) return local;
+    }
+
+    // --- Pass 2: WIDE — continental US (never worldwide). ---
+    return runPass(const _GeoBBox.unitedStates());
+  }
+
+  /// A ~[radiusMiles] bounding box centred on [center]. Longitude degrees are
+  /// scaled by latitude so the box stays roughly square in real distance.
+  _GeoBBox _bboxAround(LatLng center, double radiusMiles) {
+    final double latDelta = radiusMiles * degreesLatitudePerMile;
+    final double cosLat = math.cos(center.latitude * math.pi / 180).abs();
+    final double lonDelta = cosLat < 0.01 ? latDelta : latDelta / cosLat;
+    return _GeoBBox(
+      center.longitude - lonDelta,
+      center.latitude - latDelta,
+      center.longitude + lonDelta,
+      center.latitude + latDelta,
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -70,6 +99,7 @@ class GeocodingService {
   Future<List<GeocodingResult>> _photonSearch(
     String query, {
     LatLng? userPosition,
+    _GeoBBox? bbox,
   }) async {
     final Map<String, String> params = <String, String>{
       'q': query,
@@ -82,6 +112,12 @@ class GeocodingService {
     if (userPosition != null) {
       params['lat'] = userPosition.latitude.toStringAsFixed(6);
       params['lon'] = userPosition.longitude.toStringAsFixed(6);
+    }
+
+    // Restrict results to the box (Photon bbox: minLon,minLat,maxLon,maxLat).
+    if (bbox != null) {
+      params['bbox'] =
+          '${bbox.minLon},${bbox.minLat},${bbox.maxLon},${bbox.maxLat}';
     }
 
     final Uri uri = Uri.parse(photonSearchUrl).replace(queryParameters: params);
@@ -183,9 +219,8 @@ class GeocodingService {
   Future<List<GeocodingResult>> _nominatimSearch(
     String query, {
     LatLng? userPosition,
+    _GeoBBox? bbox,
   }) async {
-    const double viewboxDeg = 0.45; // ≈ 50 km
-
     final Map<String, String> params = <String, String>{
       'q': query,
       'format': 'json',
@@ -194,12 +229,12 @@ class GeocodingService {
       'countrycodes': 'us',
     };
 
-    if (userPosition != null) {
-      final double lat = userPosition.latitude;
-      final double lon = userPosition.longitude;
+    // Restrict to the box. Nominatim viewbox is two opposite corners as
+    // lon,lat,lon,lat; bounded=1 makes it a hard limit, not just a bias.
+    if (bbox != null) {
       params['viewbox'] =
-          '${lon - viewboxDeg},${lat + viewboxDeg},${lon + viewboxDeg},${lat - viewboxDeg}';
-      params['bounded'] = '0';
+          '${bbox.minLon},${bbox.maxLat},${bbox.maxLon},${bbox.minLat}';
+      params['bounded'] = '1';
     }
 
     final Uri uri =
@@ -286,4 +321,22 @@ class GeocodingService {
       return da.compareTo(db);
     });
   }
+}
+
+/// A lon/lat bounding box used to scope geocoder queries (local-first search).
+class _GeoBBox {
+  const _GeoBBox(this.minLon, this.minLat, this.maxLon, this.maxLat);
+
+  /// The continental-US box — the "wide" fallback so results stay in the USA
+  /// instead of going worldwide.
+  const _GeoBBox.unitedStates()
+      : minLon = usBboxMinLon,
+        minLat = usBboxMinLat,
+        maxLon = usBboxMaxLon,
+        maxLat = usBboxMaxLat;
+
+  final double minLon;
+  final double minLat;
+  final double maxLon;
+  final double maxLat;
 }
