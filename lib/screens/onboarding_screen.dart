@@ -149,7 +149,7 @@ class _WelcomePage extends StatelessWidget {
         children: <Widget>[
           const AvatarWidget(archetype: DrivingArchetype.rocket, size: 120),
           const SizedBox(height: 32),
-          Text('Bravo Maps',
+          Text('Migo',
               style: Theme.of(context).textTheme.displaySmall?.copyWith(
                     color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
           const SizedBox(height: 12),
@@ -179,7 +179,7 @@ class _PrivacyPage extends StatelessWidget {
           const _PageHeader(
             emoji: "\u{1F512}",
             title: 'Your data,\nyour rules.',
-            subtitle: 'We built Bravo Maps around one simple promise:',
+            subtitle: 'We built Migo around one simple promise:',
           ),
           const SizedBox(height: 32),
           const _PrivacyItem(icon: Icons.block_rounded, color: migoCoral,
@@ -307,7 +307,7 @@ class _AvatarTeaserPage extends StatelessWidget {
                     const _PageHeader(
                       emoji: "\u{1F3CE}",
                       title: 'Drive to discover\nyour avatar.',
-                      subtitle: 'Bravo Maps figures out your style and assigns your chibi character. Which will you be?',
+                      subtitle: 'Migo figures out your style and assigns your chibi character. Which will you be?',
                     ),
                     const SizedBox(height: 28),
                     Wrap(

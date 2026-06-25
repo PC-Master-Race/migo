@@ -65,7 +65,7 @@ class BravoMapsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Bravo Maps',
+      title: 'Migo',
       theme: buildBravoTheme(),
       debugShowCheckedModeBanner: false,
       initialRoute: SplashScreen.routeName,

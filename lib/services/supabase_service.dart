@@ -81,7 +81,7 @@ class SupabaseService {
       // exists the app still runs (map + GPS work), but backend writes that
       // need auth.uid() are blocked by RLS and fail silently.
       // ignore: avoid_print
-      print('Bravo Maps: anonymous sign-in failed ($error)');
+      print('Migo: anonymous sign-in failed ($error)');
     }
   }
 

@@ -67,7 +67,7 @@ class _SplashScreenState extends State<SplashScreen> {
             const Icon(Icons.navigation_rounded, size: 96, color: Colors.white),
             const SizedBox(height: 16),
             Text(
-              'Bravo Maps',
+              'Migo',
               style: Theme.of(context).textTheme.displayMedium?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,
