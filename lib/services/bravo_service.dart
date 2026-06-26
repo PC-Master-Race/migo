@@ -96,7 +96,7 @@ class BravoService {
     for (final Map<String, dynamic> row in rows) {
       try {
         _earned.add(
-            AchievementId.values.byName(row['achievement_id'] as String));
+            AchievementId.values.byName(row['achievement_id'] as String),);
       } catch (_) {}
     }
   }
@@ -115,7 +115,7 @@ class BravoService {
     // Query Nominatim for amenities within ~60m (coarse bounding box)
     final double delta = 0.0006; // ~60m in degrees
     final Uri url = Uri.parse(
-      '${nominatimSearchUrl}?format=json&limit=5'
+      '$nominatimSearchUrl?format=json&limit=5'
       '&bounded=1'
       '&viewbox=${position.longitude - delta},${position.latitude + delta},'
       '${position.longitude + delta},${position.latitude - delta}',
@@ -154,7 +154,7 @@ class BravoService {
 
   /// Award a driving-behavior achievement directly (called from session end).
   Future<void> awardDrivingAchievement(
-      String userId, AchievementId id) async {
+      String userId, AchievementId id,) async {
     if (_earned.contains(id)) return;
     await _awardAchievement(userId, id);
   }
@@ -182,7 +182,7 @@ class BravoService {
   /// Toggle whether a cosmetic is displayed on the avatar.
   /// The user opts in — nothing is shown without explicit choice.
   Future<void> setEquipped(
-      String userId, CosmeticId cosmeticId, bool equipped) async {
+      String userId, CosmeticId cosmeticId, bool equipped,) async {
     await SupabaseService.client
         .from('cosmetics_unlocked')
         .update(<String, dynamic>{'is_equipped': equipped})

@@ -42,7 +42,7 @@ class FamilyMemberMarker extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                        color: migoTeal.withAlpha(180), width: 2),
+                        color: migoTeal.withAlpha(180), width: 2,),
                   ),
                 ),
               AvatarWidget(archetype: archetype, size: 48),
@@ -99,7 +99,7 @@ class FamilyMemberMarker extends StatelessWidget {
             _infoRow('Speed', speed),
             _infoRow('Updated', lastSeen),
             _infoRow(
-                'Status', location.speedMps > 1 ? 'Driving' : 'Parked'),
+                'Status', location.speedMps > 1 ? 'Driving' : 'Parked',),
           ],
         ),
         actions: <Widget>[
@@ -119,11 +119,11 @@ class FamilyMemberMarker extends StatelessWidget {
           children: <Widget>[
             Text('$label: ',
                 style: const TextStyle(
-                    color: Colors.white54, fontSize: 13)),
+                    color: Colors.white54, fontSize: 13,),),
             Text(value,
                 style: const TextStyle(
                     color: Colors.white, fontSize: 13,
-                    fontWeight: FontWeight.w600)),
+                    fontWeight: FontWeight.w600,),),
           ],
         ),
       );

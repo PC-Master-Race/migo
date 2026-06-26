@@ -34,18 +34,18 @@ final StateProvider<bool> hazardLayerEnabledProvider =
 /// the app is in the background with no active navigation).
 final AutoDisposeStreamProvider<List<Hazard>> nearbyHazardsProvider =
     StreamProvider.autoDispose<List<Hazard>>((Ref ref) async* {
-  final _service = HazardService();
+  final service = HazardService();
 
   // Fetch immediately on first listen, then every 2 minutes.
   while (true) {
     final position = ref.read(positionStreamProvider).valueOrNull;
     if (position != null) {
-      final List<Hazard> hazards = await _service.fetchNearbyHazards(
+      final List<Hazard> hazards = await service.fetchNearbyHazards(
         LatLng(position.latitude, position.longitude),
       );
       // Also include the user's own unconfirmed pins so they can see what
       // they submitted — mixed in but visually distinguished in the map layer.
-      final List<Hazard> ownPending = await _service.fetchOwnPendingHazards();
+      final List<Hazard> ownPending = await service.fetchOwnPendingHazards();
       yield <Hazard>[...hazards, ...ownPending];
     }
     await Future<void>.delayed(const Duration(minutes: 2));
@@ -90,7 +90,7 @@ final StateProvider<List<Hazard>> activeHazardAlertsProvider =
 /// timestamp so they can re-alert after [hazardReAlertCooldownMinutes].
 final StateProvider<Map<String, DateTime>> alertedHazardTimestampsProvider =
     StateProvider<Map<String, DateTime>>(
-        (Ref ref) => <String, DateTime>{});
+        (Ref ref) => <String, DateTime>{},);
 
 /// Side-effect provider: watches [hazardsInAlertRangeProvider] and adds new
 /// entries to [activeHazardAlertsProvider] + fires [HazardSoundService].

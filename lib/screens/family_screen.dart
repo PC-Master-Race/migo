@@ -47,7 +47,7 @@ class _FamilyScreenState extends ConsumerState<FamilyScreen> {
           style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
-              fontSize: 20),
+              fontSize: 20,),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
@@ -57,7 +57,7 @@ class _FamilyScreenState extends ConsumerState<FamilyScreen> {
             const Center(child: CircularProgressIndicator(color: migoTeal)),
         error: (Object e, _) => _ErrorView(
             message: e.toString(),
-            onRetry: () => ref.read(familyGroupProvider.notifier).refresh()),
+            onRetry: () => ref.read(familyGroupProvider.notifier).refresh(),),
         data: (FamilyGroup? group) =>
             group == null ? _NoGroupView(this) : _GroupView(group, this),
       ),
@@ -107,7 +107,7 @@ class _FamilyScreenState extends ConsumerState<FamilyScreen> {
           builder: (_) => AlertDialog(
             backgroundColor: const Color(0xFF1A1A2E),
             title: const Text('Leave group?',
-                style: TextStyle(color: Colors.white)),
+                style: TextStyle(color: Colors.white),),
             content: const Text(
               'You will stop sharing location with this group. '
               'You can rejoin any time with the invite code.',
@@ -117,11 +117,11 @@ class _FamilyScreenState extends ConsumerState<FamilyScreen> {
               TextButton(
                   onPressed: () => Navigator.pop(context, false),
                   child: const Text('Cancel',
-                      style: TextStyle(color: Colors.white54))),
+                      style: TextStyle(color: Colors.white54),),),
               TextButton(
                   onPressed: () => Navigator.pop(context, true),
                   child: const Text('Leave',
-                      style: TextStyle(color: migoDanger))),
+                      style: TextStyle(color: migoDanger),),),
             ],
           ),
         ) ??
@@ -167,7 +167,7 @@ class _NoGroupView extends StatelessWidget {
             style: TextStyle(
                 color: Colors.white,
                 fontSize: 24,
-                fontWeight: FontWeight.w800),
+                fontWeight: FontWeight.w800,),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -254,7 +254,7 @@ class _GroupView extends ConsumerWidget {
             style: const TextStyle(
                 color: Colors.white,
                 fontSize: 22,
-                fontWeight: FontWeight.w800),
+                fontWeight: FontWeight.w800,),
           ),
           const SizedBox(height: 6),
 
@@ -271,9 +271,9 @@ class _GroupView extends ConsumerWidget {
           const SizedBox(height: 12),
           membersAsync.when(
             loading: () => const Center(
-                child: CircularProgressIndicator(color: migoTeal)),
+                child: CircularProgressIndicator(color: migoTeal),),
             error: (e, _) => Text(e.toString(),
-                style: const TextStyle(color: migoDanger)),
+                style: const TextStyle(color: migoDanger),),
             data: (List<FamilyMember> members) => Column(
               children: members
                   .map((FamilyMember m) => _MemberTile(member: m))
@@ -289,7 +289,7 @@ class _GroupView extends ConsumerWidget {
               foregroundColor: migoDanger,
               side: const BorderSide(color: migoDanger, width: 1),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),),
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             child: const Text('Leave group'),
@@ -320,7 +320,7 @@ class _SharingToggle extends StatelessWidget {
             color: sharing
                 ? migoTeal.withAlpha(120)
                 : Colors.white12,
-            width: 1),
+            width: 1,),
       ),
       child: Row(
         children: <Widget>[
@@ -339,7 +339,7 @@ class _SharingToggle extends StatelessWidget {
                   style: TextStyle(
                       color: sharing ? Colors.white : Colors.white54,
                       fontWeight: FontWeight.w700,
-                      fontSize: 14),
+                      fontSize: 14,),
                 ),
                 Text(
                   sharing
@@ -355,7 +355,7 @@ class _SharingToggle extends StatelessWidget {
             value: sharing,
             onChanged: (_) =>
                 ref.read(locationSharingEnabledProvider.notifier).toggle(),
-            activeColor: migoTeal,
+            activeThumbColor: migoTeal,
             inactiveTrackColor: Colors.white12,
           ),
         ],
@@ -392,7 +392,7 @@ class _InviteCodeCardState extends State<_InviteCodeCard> {
                   color: Colors.white54,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8)),
+                  letterSpacing: 0.8,),),
           const SizedBox(height: 10),
           Row(
             children: <Widget>[
@@ -411,7 +411,7 @@ class _InviteCodeCardState extends State<_InviteCodeCard> {
               IconButton(
                 onPressed: () async {
                   await Clipboard.setData(
-                      ClipboardData(text: widget.group.inviteCode));
+                      ClipboardData(text: widget.group.inviteCode),);
                   setState(() => _copied = true);
                   await Future<void>.delayed(const Duration(seconds: 2));
                   if (mounted) setState(() => _copied = false);
@@ -472,11 +472,11 @@ class _MemberTile extends StatelessWidget {
                     style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
-                        fontSize: 14)),
+                        fontSize: 14,),),
                 Text(
                   archetype.name,
                   style: const TextStyle(
-                      color: Colors.white38, fontSize: 11),
+                      color: Colors.white38, fontSize: 11,),
                 ),
               ],
             ),
@@ -522,7 +522,7 @@ class _SectionLabel extends StatelessWidget {
             color: Colors.white54,
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            letterSpacing: 0.8),
+            letterSpacing: 0.8,),
       );
 }
 
@@ -585,7 +585,7 @@ class _PrimaryButton extends StatelessWidget {
           foregroundColor: Colors.white,
           disabledBackgroundColor: color.withAlpha(80),
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12)),
+              borderRadius: BorderRadius.circular(12),),
           padding: const EdgeInsets.symmetric(vertical: 15),
         ),
         child: loading
@@ -593,10 +593,10 @@ class _PrimaryButton extends StatelessWidget {
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(
-                    color: Colors.white, strokeWidth: 2))
+                    color: Colors.white, strokeWidth: 2,),)
             : Text(label,
                 style: const TextStyle(
-                    fontWeight: FontWeight.w700, fontSize: 15)),
+                    fontWeight: FontWeight.w700, fontSize: 15,),),
       );
 }
 
@@ -614,12 +614,12 @@ class _ErrorView extends StatelessWidget {
             const SizedBox(height: 12),
             Text(message,
                 style: const TextStyle(color: Colors.white54),
-                textAlign: TextAlign.center),
+                textAlign: TextAlign.center,),
             const SizedBox(height: 16),
             TextButton(
                 onPressed: onRetry,
                 child: const Text('Retry',
-                    style: TextStyle(color: migoTeal))),
+                    style: TextStyle(color: migoTeal),),),
           ],
         ),
       );

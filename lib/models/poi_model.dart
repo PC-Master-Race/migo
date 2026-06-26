@@ -83,7 +83,7 @@ class PointOfInterest {
   String get displayName => name ?? category.label;
 
   factory PointOfInterest.fromOverpass(
-      Map<String, dynamic> element, PoiCategory category) {
+      Map<String, dynamic> element, PoiCategory category,) {
     final Map<String, dynamic> tags =
         element['tags'] as Map<String, dynamic>? ?? <String, dynamic>{};
     final String? houseNumber = tags['addr:housenumber'] as String?;

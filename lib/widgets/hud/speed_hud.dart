@@ -22,9 +22,19 @@ class SpeedHud extends ConsumerWidget {
 
     // Theme-aware text color so the readout stays legible on the Card surface
     // in both light and dark mode (dark ink on light card / light ink on dark).
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
     final Color ink = Theme.of(context).colorScheme.onSurface;
 
     return Card(
+      // Lift the card off the (possibly dark) map: stronger elevation + a subtle
+      // light border in dark mode so the speed never blends into the night map.
+      elevation: dark ? 8 : 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(
+          color: dark ? Colors.white.withValues(alpha: 0.14) : Colors.transparent,
+        ),
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Column(

@@ -141,7 +141,7 @@ class ReportHazardSheet extends ConsumerWidget {
             Center(
               child: TextButton.icon(
                 icon: const Icon(Icons.no_photography_rounded,
-                    size: 16, color: migoPlum),
+                    size: 16, color: migoPlum,),
                 label: const Text(
                   'Quick-report an ALPR camera',
                   style: TextStyle(color: migoPlum, fontSize: 13),

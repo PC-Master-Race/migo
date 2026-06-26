@@ -100,7 +100,7 @@ class GasPriceService {
       for (final Map<String, dynamic> row in rows) {
         final GasPrice price = GasPrice.fromJson(row);
         priceMap.putIfAbsent(
-            price.stationOsmId, () => <FuelGrade, GasPrice>{});
+            price.stationOsmId, () => <FuelGrade, GasPrice>{},);
         // Only keep the most recent per grade (rows are ordered desc).
         priceMap[price.stationOsmId]!
             .putIfAbsent(price.grade, () => price);
@@ -109,7 +109,7 @@ class GasPriceService {
       return stations
           .map((GasStation s) => s.copyWith(
                 latestPrices: priceMap[s.id] ?? <FuelGrade, GasPrice>{},
-              ))
+              ),)
           .toList();
     } catch (_) {
       return stations; // Return without prices if Supabase fails.

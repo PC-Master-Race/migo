@@ -235,8 +235,8 @@ class ArchetypeService {
   DrivingArchetype _dominant(ArchetypeScores scores) {
     return scores.entries
         .reduce((MapEntry<DrivingArchetype, double> a,
-                MapEntry<DrivingArchetype, double> b) =>
-            a.value >= b.value ? a : b)
+                MapEntry<DrivingArchetype, double> b,) =>
+            a.value >= b.value ? a : b,)
         .key;
   }
 

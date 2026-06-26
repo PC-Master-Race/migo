@@ -133,11 +133,11 @@ class HazardService {
         await SupabaseService.client.rpc('increment_hazard_confirmed', params: <String, dynamic>{
           'hazard_id': hazardId,
           'threshold': hazardConfirmationVoteThreshold,
-        });
+        },);
       } else {
         await SupabaseService.client.rpc('increment_hazard_dismissed', params: <String, dynamic>{
           'hazard_id': hazardId,
-        });
+        },);
       }
     } catch (_) {
       // Swallow duplicate-vote errors gracefully.
@@ -186,7 +186,7 @@ class HazardService {
   /// Returns a (minLat, maxLat, minLon, maxLon) bounding box for a circle
   /// around [center] with the given [radiusMiles].
   (double, double, double, double) _boundingBox(
-      LatLng center, double radiusMiles) {
+      LatLng center, double radiusMiles,) {
     final double latDelta = radiusMiles / 69.0;
     final double lonDelta =
         radiusMiles / (69.0 * math.cos(center.latitude * math.pi / 180.0));

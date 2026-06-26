@@ -20,6 +20,15 @@ dependencies:
   # --- MAPS ---
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
+  # Vector tiles: client-side rendered map so we control the dark theme and
+  # label size/weight/color (Google-style) instead of baked-in raster labels.
+  # vector_map_tiles 8.x targets flutter_map ^7.0.2; the _pmtiles provider adds
+  # privacy-friendly, offline-capable PMTiles + ready-made Protomaps themes.
+  vector_map_tiles: ^8.0.0
+  vector_map_tiles_pmtiles: ^1.5.0
+  # Renderer (used directly to build a Theme from our bundled current-schema
+  # Protomaps style JSON — the package's built-in themes target an older schema).
+  vector_tile_renderer: ^5.2.0
 
   # --- LOCATION ---
   geolocator: ^13.0.2
@@ -67,6 +76,7 @@ flutter:
     - assets/avatars/
     - assets/hazard_icons/
     - assets/sounds/
+    - assets/map_styles/
 
   # TODO: [uncomment once Nunito font files are committed to assets/fonts/]
   # fonts:

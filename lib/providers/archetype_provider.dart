@@ -5,7 +5,6 @@
 //   archetypeNotifierProvider — holds ArchetypeProfile, exposes recalculate()
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/archetype_model.dart';
 import '../services/archetype_service.dart';

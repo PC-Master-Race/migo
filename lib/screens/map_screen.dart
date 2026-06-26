@@ -20,6 +20,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:vector_map_tiles/vector_map_tiles.dart';
 
 import '../constants.dart';
 import '../models/route_model.dart';
@@ -28,6 +29,7 @@ import '../providers/location_provider.dart';
 import '../providers/driving_session_provider.dart';
 import '../providers/saved_location_provider.dart';
 import '../providers/map_provider.dart';
+import '../providers/vector_tiles_provider.dart';
 import '../providers/routing_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/map_service.dart';
@@ -70,6 +72,30 @@ const double _searchBarHeight = 52.0;
 /// Minimum zoom level at which POI markers render on the map.
 /// Below this they crowd each other and slow rendering unnecessarily.
 const double _poiMinZoom = 14.5;
+
+/// Master switch for the experimental vector-tile basemap. OFF for now: the
+/// Dart renderer won't draw roads/labels from Protomaps tiles. Turn back on once
+/// we wire a renderer-compatible source/style (e.g. Stadia Dark Matter).
+const bool kVectorTilesEnabled = false;
+
+// --- THEME-AWARE HUD PALETTE ---
+// Overlays float on top of the map, so they must stay legible AND distinct
+// whether the map below them is the light cartoon style or the dark night
+// style. In dark mode panels get a slightly-elevated warm-dark surface plus a
+// subtle light border so they never blend into the dimmed map.
+
+bool _darkMode(BuildContext c) => Theme.of(c).brightness == Brightness.dark;
+
+/// Floating panel surface (search bar, results, chips, attribution).
+Color _panelColor(BuildContext c) =>
+    _darkMode(c) ? const Color(0xFF26201C) : Colors.white;
+
+/// Primary text/icon ink on a panel.
+Color _panelInk(BuildContext c) => _darkMode(c) ? migoDarkInk : migoInk;
+
+/// Subtle separating border — visible only in dark mode (transparent in light).
+Color _panelBorder(BuildContext c) =>
+    _darkMode(c) ? Colors.white.withValues(alpha: 0.12) : Colors.transparent;
 
 // --- SCREEN ---
 
@@ -568,28 +594,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         onMapEvent: _handleMapEvent,
       ),
       children: <Widget>[
-        TileLayer(
-          urlTemplate: MapService.tileUrlTemplateForMode(zoomMode),
-          userAgentPackageName: osmUserAgent,
-          tileProvider: zoomMode == MapZoomMode.street
-              ? NetworkTileProvider()
-              : OfflineFirstTileProvider(),
-        ),
-        // In satellite/street mode stack two transparent Esri reference layers
-        // on top of the imagery: one for place names, one for road/street names.
-        if (zoomMode == MapZoomMode.street) ...<Widget>[
-          TileLayer(
-            urlTemplate: satelliteRoadsTileUrlTemplate,
-            userAgentPackageName: osmUserAgent,
-            tileProvider: NetworkTileProvider(),
-          ),
-          TileLayer(
-            urlTemplate: satelliteLabelsTileUrlTemplate,
-            userAgentPackageName: osmUserAgent,
-            tileProvider: NetworkTileProvider(),
-          ),
-        ],
-        _buildCartoonTintOverlay(zoomMode),
+        // Base map: vector tiles (dark-aware, controllable labels) for the
+        // cartoon/hybrid styles; raster satellite imagery for street mode.
+        ..._baseMapLayers(zoomMode),
 
         // Route polyline — only the REMAINING portion ahead of the user is
         // drawn; the part already driven is trimmed away so it doesn't linger
@@ -814,7 +821,91 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // The user marker layer now lives in SmoothUserMarkerLayer (it animates the
   // marker between GPS fixes so the avatar glides instead of hopping).
 
+  /// Base map layers. Cartoon/hybrid render from VECTOR tiles (so we control
+  /// the dark theme + label styling); street mode stays raster satellite.
+  /// While the vector source loads — or if it fails — we fall back to raster
+  /// OSM tiles so the map is never blank.
+  List<Widget> _baseMapLayers(MapZoomMode zoomMode) {
+    // WIP: vector tiles are paused — the Dart renderer won't draw roads/labels
+    // from Protomaps tiles. Flip [kVectorTilesEnabled] back on (and pick a
+    // working tile source/style) to resume. Until then, use the raster map.
+    if (!kVectorTilesEnabled || zoomMode == MapZoomMode.street) {
+      return _rasterBaseLayers(zoomMode);
+    }
+    final AsyncValue<MapVectorBundle> vec =
+        ref.watch(mapVectorBundleProvider);
+    return vec.when(
+      data: (MapVectorBundle bundle) => <Widget>[
+        VectorTileLayer(
+          theme: _darkMode(context) ? bundle.dark : bundle.light,
+          tileProviders: TileProviders(<String, VectorTileProvider>{
+            'protomaps': bundle.tiles,
+          }),
+        ),
+      ],
+      loading: () => _rasterBaseLayers(zoomMode),
+      // TEMP diagnostic: surface the vector-tile failure on-screen so we can
+      // see WHY it fell back to raster (network, URL, schema, etc.).
+      error: (Object e, StackTrace s) => <Widget>[
+        ..._rasterBaseLayers(zoomMode),
+        Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 130),
+            child: Material(
+              color: const Color(0xCCB00020),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
+                  'Vector tiles error:\n$e',
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Raster OSM/satellite layers — used for street mode and as the vector
+  /// loading / failure fallback.
+  List<Widget> _rasterBaseLayers(MapZoomMode zoomMode) {
+    return <Widget>[
+      TileLayer(
+        urlTemplate: MapService.tileUrlTemplateForMode(zoomMode),
+        userAgentPackageName: osmUserAgent,
+        tileProvider: zoomMode == MapZoomMode.street
+            ? NetworkTileProvider()
+            : OfflineFirstTileProvider(),
+      ),
+      // In satellite/street mode stack two transparent Esri reference layers
+      // on top of the imagery: one for place names, one for road/street names.
+      if (zoomMode == MapZoomMode.street) ...<Widget>[
+        TileLayer(
+          urlTemplate: satelliteRoadsTileUrlTemplate,
+          userAgentPackageName: osmUserAgent,
+          tileProvider: NetworkTileProvider(),
+        ),
+        TileLayer(
+          urlTemplate: satelliteLabelsTileUrlTemplate,
+          userAgentPackageName: osmUserAgent,
+          tileProvider: NetworkTileProvider(),
+        ),
+      ],
+      _buildCartoonTintOverlay(zoomMode),
+    ];
+  }
+
   Widget _buildCartoonTintOverlay(MapZoomMode zoomMode) {
+    // Dark mode: dim the bright map for night driving with a dark scrim instead
+    // of the warm amber tint. (Tunable — bump the alpha for a darker map.)
+    if (_darkMode(context)) {
+      return IgnorePointer(
+        child: Container(color: Colors.black.withValues(alpha: 0.42)),
+      );
+    }
     final double opacity = switch (zoomMode) {
       MapZoomMode.cartoon => cartoonTintOpacity,
       MapZoomMode.hybrid => hybridTintOpacity,
@@ -840,24 +931,29 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         children: <Widget>[
           Material(
             elevation: 4,
-            borderRadius: BorderRadius.circular(28),
-            color: Colors.white,
+            color: _panelColor(context),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
+              side: BorderSide(color: _panelBorder(context)),
+            ),
             child: Row(
               children: <Widget>[
                 const SizedBox(width: 16),
-                const Icon(Icons.search_rounded, color: migoInk, size: 20),
+                Icon(Icons.search_rounded, color: _panelInk(context), size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
                     controller: _searchController,
                     focusNode: _searchFocus,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'Where to?',
+                      hintStyle: TextStyle(
+                          color: _panelInk(context).withValues(alpha: 0.4)),
                       border: InputBorder.none,
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 14),
                     ),
-                    style: const TextStyle(fontSize: 15, color: migoInk),
+                    style: TextStyle(fontSize: 15, color: _panelInk(context)),
                     onChanged: _onSearchChanged,
                     onSubmitted: _onSearchSubmitted,
                     textInputAction: TextInputAction.search,
@@ -866,7 +962,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 if (_searchController.text.isNotEmpty)
                   IconButton(
                     icon: const Icon(Icons.close_rounded, size: 18),
-                    color: migoInk.withValues(alpha: 0.5),
+                    color: _panelInk(context).withValues(alpha: 0.5),
                     onPressed: _clearSearch,
                   ),
                 // Mic button — speech-to-text destination search.
@@ -882,13 +978,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         decoration: BoxDecoration(
                           color: _isListening
                               ? migoCoral
-                              : migoInk.withValues(alpha: 0.08),
+                              : _panelInk(context).withValues(alpha: 0.08),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
                           size: 18,
-                          color: _isListening ? Colors.white : migoInk,
+                          color: _isListening ? Colors.white : _panelInk(context),
                         ),
                       ),
                     ),
@@ -929,7 +1025,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       return Material(
         elevation: 2,
         borderRadius: BorderRadius.circular(12),
-        color: Colors.white,
+        color: _panelColor(context),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(
@@ -937,10 +1033,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               Icon(Icons.bookmark_add_rounded,
                   size: 18, color: migoCoral.withValues(alpha: 0.7)),
               const SizedBox(width: 8),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Search for a place, then tap the bookmark to save Home, Work, or Favorites here.',
-                  style: TextStyle(fontSize: 12, color: migoInk),
+                  style: TextStyle(fontSize: 12, color: _panelInk(context)),
                 ),
               ),
             ],
@@ -960,9 +1056,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               avatar: Icon(loc.type.icon, size: 16, color: loc.type.color),
               label: Text(
                 loc.label,
-                style: const TextStyle(fontSize: 13, color: migoInk),
+                style: TextStyle(fontSize: 13, color: _panelInk(context)),
               ),
-              backgroundColor: Colors.white,
+              backgroundColor: _panelColor(context),
               elevation: 3,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20)),
@@ -981,7 +1077,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return Material(
       elevation: 8,
       borderRadius: BorderRadius.circular(16),
-      color: Colors.white,
+      color: _panelColor(context),
       child: results.when(
         loading: () => const Padding(
           padding: EdgeInsets.all(16),
@@ -1020,10 +1116,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     const Icon(Icons.place_rounded, color: migoCoral),
                 title: Text(
                   r.shortName,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: migoInk),
+                      color: _panelInk(context)),
                 ),
                 subtitle: Text(
                   r.displayName,
@@ -1031,7 +1127,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       fontSize: 12,
-                      color: migoInk.withValues(alpha: 0.5)),
+                      color: _panelInk(context).withValues(alpha: 0.5)),
                 ),
                 trailing: GestureDetector(
                   onTap: () => _showSaveLocationSheet(context, r),
@@ -1193,14 +1289,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       right: 8,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: migoCream.withValues(alpha: 0.85),
+          color: (_darkMode(context) ? migoDarkBg : migoCream)
+              .withValues(alpha: 0.85),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: Text(
             text,
-            style: const TextStyle(fontSize: 11, color: migoInk),
+            style: TextStyle(fontSize: 11, color: _panelInk(context)),
           ),
         ),
       ),
@@ -1452,8 +1549,11 @@ class _ManeuverBanner extends StatelessWidget {
 
     return Material(
       elevation: 6,
-      borderRadius: BorderRadius.circular(18),
       color: migoInk,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: _panelBorder(context)),
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         child: Column(

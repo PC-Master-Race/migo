@@ -6,7 +6,6 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_ce/hive.dart';
-import 'package:latlong2/latlong.dart';
 
 import '../constants.dart';
 import '../models/saved_location_model.dart';
@@ -37,7 +36,7 @@ class SavedLocationNotifier extends StateNotifier<List<SavedLocation>> {
       final List<dynamic> list = jsonDecode(raw) as List<dynamic>;
       state = list
           .map((dynamic e) =>
-              SavedLocation.fromJson(e as Map<String, dynamic>))
+              SavedLocation.fromJson(e as Map<String, dynamic>),)
           .toList();
     } catch (_) {
       // Corrupt data — start with empty list.

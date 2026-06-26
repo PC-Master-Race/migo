@@ -45,7 +45,7 @@ class GasStationMarker extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 const Icon(Icons.local_gas_station,
-                    color: Colors.white, size: 14),
+                    color: Colors.white, size: 14,),
                 Text(
                   price != null
                       ? '\$${price.toStringAsFixed(2)}'
@@ -64,7 +64,7 @@ class GasStationMarker extends StatelessWidget {
           CustomPaint(
             size: const Size(10, 5),
             painter: _TrianglePainter(
-                isSelected ? migoTeal : const Color(0xFF0288D1)),
+                isSelected ? migoTeal : const Color(0xFF0288D1),),
           ),
         ],
       ),
@@ -123,7 +123,7 @@ class PoiMarker extends StatelessWidget {
               shape: BoxShape.circle,
               boxShadow: <BoxShadow>[
                 BoxShadow(
-                    color: Colors.black38, blurRadius: 4, offset: Offset(0, 2))
+                    color: Colors.black38, blurRadius: 4, offset: Offset(0, 2),),
               ],
             ),
             child: Icon(icon, color: Colors.white, size: 18),

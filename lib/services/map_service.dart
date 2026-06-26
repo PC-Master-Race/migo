@@ -246,7 +246,7 @@ class _OfflineFirstTileImage extends ImageProvider<_OfflineFirstTileImage> {
 
   @override
   ImageStreamCompleter loadImage(
-      _OfflineFirstTileImage key, ImageDecoderCallback decode) {
+      _OfflineFirstTileImage key, ImageDecoderCallback decode,) {
     return OneFrameImageStreamCompleter(_loadTile(decode));
   }
 

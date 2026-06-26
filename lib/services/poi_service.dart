@@ -129,7 +129,7 @@ class PoiService {
           final Map<String, dynamic> tags =
               element['tags'] as Map<String, dynamic>? ?? <String, dynamic>{};
 
-          PoiCategory? cat =
+          final PoiCategory? cat =
               _amenityMap[tags['amenity'] as String? ?? ''] ??
               _leisureMap[tags['leisure'] as String? ?? ''] ??
               _shopMap[tags['shop'] as String? ?? ''];

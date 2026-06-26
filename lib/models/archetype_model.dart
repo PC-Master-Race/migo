@@ -219,7 +219,7 @@ class ArchetypeProfile {
         'user_id': userId,
         'current_archetype': currentArchetype.name,
         'scores': scores.map((DrivingArchetype k, double v) =>
-            MapEntry(k.name, v)),
+            MapEntry(k.name, v),),
         if (rareArchetype != null) 'rare_archetype': rareArchetype!.name,
         'badges': badges.map((AvatarBadge b) => b.name).toList(),
         'session_count': sessionCount,

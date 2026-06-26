@@ -11,7 +11,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../models/family_model.dart';
 import '../services/family_service.dart';
-import 'archetype_provider.dart'; // currentUserIdProvider
+// currentUserIdProvider
 import 'location_provider.dart';  // positionStreamProvider
 import 'settings_provider.dart';  // locationSharingEnabledProvider
 
