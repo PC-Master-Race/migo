@@ -33,6 +33,12 @@ final StreamProvider<Position> positionStreamProvider =
 final StateProvider<LatLng?> displayedPositionProvider =
     StateProvider<LatLng?>((Ref ref) => null);
 
+/// The avatar's smoothed heading (degrees, 0 = north), eased the same way as
+/// the position so the heading-up camera rotates fluidly instead of snapping
+/// on every fix. Road-snapped during navigation. Null before the first fix.
+final StateProvider<double?> displayedHeadingProvider =
+    StateProvider<double?>((Ref ref) => null);
+
 /// Current display speed in whole mph, jitter-suppressed. 0 when stationary
 /// or before the first GPS fix.
 final Provider<int> displaySpeedMphProvider = Provider<int>((Ref ref) {

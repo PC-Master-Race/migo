@@ -61,6 +61,10 @@ class _SmoothUserMarkerLayerState extends ConsumerState<SmoothUserMarkerLayer>
   /// What's actually drawn — eased toward the dead-reckoned target each frame.
   LatLng? _displayed;
 
+  /// Smoothed heading for the heading-up camera — eased along the shortest
+  /// arc so 350°→10° rotates 20° instead of spinning 340° the wrong way.
+  double? _displayedHeading;
+
   @override
   void dispose() {
     _ticker.dispose();
@@ -151,8 +155,18 @@ class _SmoothUserMarkerLayerState extends ConsumerState<SmoothUserMarkerLayer>
       }
     }
 
+    // Ease the heading too (only while moving — a parked car's heading is
+    // noise). Same exponential approach, but along the shortest arc.
+    if (_hasHeading && _speed >= tripStopSpeedMps) {
+      final double alpha = 1 - math.exp(-dtSec / markerEaseTauSeconds);
+      final double current = _displayedHeading ?? _heading;
+      final double delta = ((_heading - current + 540) % 360) - 180;
+      _displayedHeading = (current + delta * alpha + 360) % 360;
+    }
+
     // Publish for the camera (map_screen follows this, not the raw fixes).
     ref.read(displayedPositionProvider.notifier).state = _displayed;
+    ref.read(displayedHeadingProvider.notifier).state = _displayedHeading;
     setState(() {});
   }
 

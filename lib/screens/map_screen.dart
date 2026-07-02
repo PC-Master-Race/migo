@@ -452,17 +452,30 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // Camera follow: track the avatar's EASED display position every frame
     // (published by SmoothUserMarkerLayer) instead of recentering on each raw
     // 1 Hz fix — the once-per-second map jump was half the "surging" feel.
+    // During navigation the camera also rotates HEADING-UP (the road ahead
+    // points to the top of the screen, like Google/Waze).
     ref.listen<LatLng?>(displayedPositionProvider,
         (LatLng? prev, LatLng? next) {
       if (next == null || !_isFollowingUser || !_hasHadFirstFix) return;
+      final bool navigating = ref.read(destinationProvider) != null;
+      final double? heading =
+          navigating ? ref.read(displayedHeadingProvider) : null;
       final LatLng? last = _lastCameraTarget;
-      // Skip sub-15 cm moves so a parked car doesn't spam camera updates.
-      if (last != null &&
-          const Distance().as(LengthUnit.Meter, last, next) < 0.15) {
-        return;
-      }
+      final bool moved = last == null ||
+          const Distance().as(LengthUnit.Meter, last, next) >= 0.15;
+      final bool rotated = heading != null &&
+          (((-heading) - _mapController.camera.rotation).abs() % 360) > 0.2;
+      // Skip no-op updates so a parked car doesn't spam the camera.
+      if (!moved && !rotated) return;
       _lastCameraTarget = next;
-      _mapController.move(next, _mapController.camera.zoom);
+      if (heading != null) {
+        // Map rotation is opposite the travel bearing: bearing 90° (east)
+        // needs the map rotated -90° so east points up.
+        _mapController.moveAndRotate(
+            next, _mapController.camera.zoom, -heading);
+      } else {
+        _mapController.move(next, _mapController.camera.zoom);
+      }
     });
 
     if (position != null) {
@@ -504,7 +517,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _isNavigating = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          _mapController.move(_mapController.camera.center, mapFirstFixZoom);
+          // Navigation over: zoom back out AND restore north-up.
+          _mapController.moveAndRotate(
+              _mapController.camera.center, mapFirstFixZoom, 0);
         }
       });
     }
@@ -673,6 +688,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 point: route.destination,
                 width: 32,
                 height: 32,
+                rotate: true, // stay upright under the heading-up camera
                 // Tap the pin to save this place (Home/Work/Favorite).
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -716,6 +732,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           point: LatLng(loc.latitude, loc.longitude),
           width: sz,
           height: sz,
+          rotate: true, // stay upright under the heading-up camera
           child: FamilyMemberMarker(member: member, location: loc),
         );
       }).whereType<Marker>().toList(),
@@ -739,6 +756,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           point: LatLng(station.latitude, station.longitude),
           width: isSelected ? 88 : 72,
           height: isSelected ? 48 : 40,
+          rotate: true, // stay upright under the heading-up camera
           child: GasStationMarker(
             station: station,
             isSelected: isSelected,
@@ -779,6 +797,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           point: LatLng(poi.latitude, poi.longitude),
           width: 44,
           height: 52,
+          rotate: true, // stay upright under the heading-up camera
           child: PoiMarker(
             icon: poi.category.icon,
             color: poi.category.color,
@@ -844,6 +863,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           point: h.position,
           width: hazardIconSize,
           height: hazardIconSize,
+          rotate: true, // stay upright under the heading-up camera
           child: HazardIcon(type: h.type, isOwn: !h.isCommunityConfirmed),
         );
       }).toList(),
@@ -863,6 +883,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           point: c,
           width: 26,
           height: 26,
+          rotate: true, // stay upright under the heading-up camera
           child: const _AlprCameraMarker(),
         );
       }).toList(),
