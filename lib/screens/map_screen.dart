@@ -73,10 +73,11 @@ const double _searchBarHeight = 52.0;
 /// Below this they crowd each other and slow rendering unnecessarily.
 const double _poiMinZoom = 14.5;
 
-/// Master switch for the experimental vector-tile basemap. OFF for now: the
-/// Dart renderer won't draw roads/labels from Protomaps tiles. Turn back on once
-/// we wire a renderer-compatible source/style (e.g. Stadia Dark Matter).
-const bool kVectorTilesEnabled = false;
+/// Master switch for the vector-tile basemap. The pipeline now uses hosted
+/// MapTiler styles (the renderer-verified combo) and self-gates on the
+/// MAPTILER_API_KEY dart-define — no key, no vector tiles, raster fallback.
+/// This flag stays as a manual override for debugging.
+const bool kVectorTilesEnabled = true;
 
 // --- THEME-AWARE HUD PALETTE ---
 // Overlays float on top of the map, so they must stay legible AND distinct
@@ -126,6 +127,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _prefetchStarted = false;
   bool _showSearchResults = false;
   bool _hasHadFirstFix = false;
+
+  /// Last point the follow-camera moved to — skips no-op micro-moves.
+  LatLng? _lastCameraTarget;
 
   /// The place the user last chose as a destination, kept so tapping the
   /// destination pin can offer to save it (Home/Work/Favorite).
@@ -349,6 +353,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _selectedDestination = result;
     setState(() => _showSearchResults = false);
 
+    // Diagnostic for "destination pinned on the wrong side of the street":
+    // logs exactly which coordinate the geocoder gave us, so a bad pin can be
+    // checked against the real place (paste lat,lng into any map site).
+    debugPrint('[geocode] selected "${result.displayName}" @ '
+        '${result.position.latitude.toStringAsFixed(6)},'
+        '${result.position.longitude.toStringAsFixed(6)}');
+
     ref.read(destinationProvider.notifier).state = result.position;
 
     final Position? pos = ref.read(positionStreamProvider).valueOrNull;
@@ -411,12 +422,52 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // Drives the archetype loop: feeds GPS to the session tracker + POI checks.
     ref.watch(drivingSessionEngineProvider);
 
+    // Surface routing FAILURES — previously an AsyncError rendered as
+    // "nothing happens" because everything reads valueOrNull. (This is how
+    // the ALPR-avoidance Valhalla rejection stayed invisible.)
+    ref.listen<AsyncValue<BravoRoute?>>(activeRouteProvider,
+        (AsyncValue<BravoRoute?>? prev, AsyncValue<BravoRoute?> next) {
+      if (next.hasError && !(prev?.hasError ?? false)) {
+        final String msg = next.error.toString();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            'Route failed: ${msg.length > 140 ? '${msg.substring(0, 140)}…' : msg}',
+          ),
+          duration: const Duration(seconds: 6),
+        ));
+      }
+    });
+
+    // One-shot route notices ("Avoiding 7 camera zones", fallback warnings).
+    ref.listen<String?>(routeNoticeProvider, (String? prev, String? next) {
+      if (next == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(next),
+        duration: const Duration(seconds: 4),
+      ));
+      // Consume so the same notice can fire again on the next calculation.
+      ref.read(routeNoticeProvider.notifier).state = null;
+    });
+
+    // Camera follow: track the avatar's EASED display position every frame
+    // (published by SmoothUserMarkerLayer) instead of recentering on each raw
+    // 1 Hz fix — the once-per-second map jump was half the "surging" feel.
+    ref.listen<LatLng?>(displayedPositionProvider,
+        (LatLng? prev, LatLng? next) {
+      if (next == null || !_isFollowingUser || !_hasHadFirstFix) return;
+      final LatLng? last = _lastCameraTarget;
+      // Skip sub-15 cm moves so a parked car doesn't spam camera updates.
+      if (last != null &&
+          const Distance().as(LengthUnit.Meter, last, next) < 0.15) {
+        return;
+      }
+      _lastCameraTarget = next;
+      _mapController.move(next, _mapController.camera.zoom);
+    });
+
     if (position != null) {
       _startPrefetchOnce(position);
       _handleFirstFix(position);
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _followPositionIfEnabled(position),
-      );
     }
 
     // Off-route: trigger one recalculation then wait 10 s before allowing
@@ -826,23 +877,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// While the vector source loads — or if it fails — we fall back to raster
   /// OSM tiles so the map is never blank.
   List<Widget> _baseMapLayers(MapZoomMode zoomMode) {
-    // WIP: vector tiles are paused — the Dart renderer won't draw roads/labels
-    // from Protomaps tiles. Flip [kVectorTilesEnabled] back on (and pick a
-    // working tile source/style) to resume. Until then, use the raster map.
-    if (!kVectorTilesEnabled || zoomMode == MapZoomMode.street) {
+    // Vector tiles need the MapTiler key (MAPTILER_API_KEY in env.json).
+    // Without it — or in street/satellite mode — we stay on the raster map.
+    if (!kVectorTilesEnabled ||
+        !vectorTilesConfigured ||
+        zoomMode == MapZoomMode.street) {
       return _rasterBaseLayers(zoomMode);
     }
-    final AsyncValue<MapVectorBundle> vec =
-        ref.watch(mapVectorBundleProvider);
+    final AsyncValue<VectorStylePair> vec =
+        ref.watch(mapVectorStylesProvider);
     return vec.when(
-      data: (MapVectorBundle bundle) => <Widget>[
-        VectorTileLayer(
-          theme: _darkMode(context) ? bundle.dark : bundle.light,
-          tileProviders: TileProviders(<String, VectorTileProvider>{
-            'protomaps': bundle.tiles,
-          }),
-        ),
-      ],
+      data: (VectorStylePair styles) {
+        final VectorStyle style =
+            _darkMode(context) ? styles.dark : styles.light;
+        return <Widget>[
+          VectorTileLayer(
+            theme: style.theme,
+            sprites: style.sprites,
+            tileProviders: style.providers,
+            // Vector mode: labels stay razor-sharp at every zoom — the whole
+            // point of this exercise. (Raster mode bakes text into tiles and
+            // upscales it blurry; if perf on the 7" tablet ever suffers,
+            // switching back to VectorTileLayerMode.raster is the knob.)
+            layerMode: VectorTileLayerMode.vector,
+          ),
+        ];
+      },
       loading: () => _rasterBaseLayers(zoomMode),
       // TEMP diagnostic: surface the vector-tile failure on-screen so we can
       // see WHY it fell back to raster (network, URL, schema, etc.).

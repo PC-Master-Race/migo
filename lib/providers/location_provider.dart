@@ -3,6 +3,7 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../services/location_service.dart';
 import '../utils/speed_utils.dart';
@@ -24,6 +25,13 @@ final StreamProvider<Position> positionStreamProvider =
   }
   yield* locationService.positionStream();
 });
+
+/// The avatar's DISPLAYED position — snapped to the route and eased every
+/// frame by SmoothUserMarkerLayer. The camera follows THIS (not the raw 1 Hz
+/// fix stream) so map movement is continuous instead of jumping once per
+/// second. Null until the first fix.
+final StateProvider<LatLng?> displayedPositionProvider =
+    StateProvider<LatLng?>((Ref ref) => null);
 
 /// Current display speed in whole mph, jitter-suppressed. 0 when stationary
 /// or before the first GPS fix.

@@ -46,6 +46,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
@@ -79,21 +80,25 @@ class RoutingService {
       alprLocations: alprLocations,
     );
 
-    final http.Response response = await http
-        .post(
-          Uri.parse(valhallaApiUrl),
-          headers: <String, String>{
-            'Content-Type': 'application/json',
-            'User-Agent': osmUserAgent,
-          },
-          body: jsonEncode(body),
-        )
-        .timeout(const Duration(seconds: 15));
+    final int polygonCount =
+        (body['exclude_polygons'] as List<dynamic>?)?.length ?? 0;
+    if (polygonCount > 0) {
+      debugPrint('[routing] Valhalla request with $polygonCount '
+          'exclude_polygons (~${(polygonCount * alprExclusionPerimeterMeters).round()} m '
+          'of the ${valhallaExcludePerimeterBudgetMeters.round()} m budget)');
+    }
+
+    // The public Valhalla server occasionally throws transient 5xx errors
+    // (502 Bad Gateway under load). Retry those a couple of times before
+    // giving up — a driver shouldn't see "route failed" for a server blip.
+    http.Response response = await _postWithRetry(body);
 
     if (response.statusCode != 200) {
-      throw RoutingException(
-        'Valhalla returned ${response.statusCode}: ${response.body}',
-      );
+      // Log the FULL body — Valhalla's rejection reason lives here and losing
+      // it is exactly how the "avoidance silently dies" bug stayed hidden.
+      debugPrint('[routing] Valhalla HTTP ${response.statusCode}: '
+          '${response.body.length > 600 ? response.body.substring(0, 600) : response.body}');
+      throw RoutingException(_conciseValhallaError(response));
     }
 
     return _parseResponse(
@@ -101,6 +106,85 @@ class RoutingService {
       destination: destination,
       preferences: preferences,
     );
+  }
+
+  /// POSTs the route request, retrying up to [valhallaMaxRetries] times on
+  /// transient failures (HTTP 5xx). 4xx responses return immediately — those
+  /// are OUR fault (bad request) and retrying won't change the answer.
+  ///
+  /// FALLBACK: the public server has been observed 502-ing POST /route while
+  /// answering GET /route?json=... fine (confirmed live 2026-07-01). After a
+  /// 5xx on POST we immediately retry the SAME request as a GET when it fits
+  /// in a URL (plain routes always do; camera-avoidance payloads may not).
+  Future<http.Response> _postWithRetry(Map<String, dynamic> body) async {
+    Object? lastError;
+    for (int attempt = 0; attempt <= valhallaMaxRetries; attempt++) {
+      if (attempt > 0) {
+        debugPrint('[routing] retrying Valhalla (attempt ${attempt + 1})');
+        await Future<void>.delayed(valhallaRetryDelay * attempt);
+      }
+      try {
+        final http.Response response = await http
+            .post(
+              Uri.parse(valhallaApiUrl),
+              headers: <String, String>{
+                'Content-Type': 'application/json',
+                'User-Agent': osmUserAgent,
+              },
+              body: jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 15));
+        if (response.statusCode < 500) return response; // success or 4xx
+        lastError = 'HTTP ${response.statusCode}';
+        debugPrint('[routing] Valhalla POST ${response.statusCode} — '
+            'trying GET fallback');
+      } catch (e) {
+        lastError = e; // network error / timeout — also worth a retry
+        debugPrint('[routing] Valhalla POST failed ($e) — trying GET fallback');
+      }
+
+      // GET fallback for this attempt.
+      final http.Response? viaGet = await _tryGet(body);
+      if (viaGet != null && viaGet.statusCode < 500) return viaGet;
+      if (viaGet != null) lastError = 'HTTP ${viaGet.statusCode} (GET)';
+    }
+    throw RoutingException(
+        'Routing server unavailable after ${valhallaMaxRetries + 1} attempts '
+        '($lastError). Try again in a moment.');
+  }
+
+  /// Sends the route request as GET /route?json=<encoded>. Returns null when
+  /// the payload is too large for a URL or the request throws.
+  Future<http.Response?> _tryGet(Map<String, dynamic> body) async {
+    final Uri uri = Uri.parse(valhallaApiUrl)
+        .replace(queryParameters: <String, String>{'json': jsonEncode(body)});
+    if (uri.toString().length > 7500) {
+      debugPrint('[routing] GET fallback skipped — payload too large for URL');
+      return null;
+    }
+    try {
+      return await http
+          .get(uri, headers: <String, String>{'User-Agent': osmUserAgent})
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      debugPrint('[routing] GET fallback failed: $e');
+      return null;
+    }
+  }
+
+  /// Extracts a short human-readable error from a Valhalla error response
+  /// (they return JSON like {"error_code":171,"error":"..."}). Falls back to
+  /// the status code alone so the UI message stays snackbar-sized.
+  String _conciseValhallaError(http.Response response) {
+    try {
+      final Map<String, dynamic> json =
+          jsonDecode(response.body) as Map<String, dynamic>;
+      final String? msg = json['error'] as String?;
+      if (msg != null && msg.isNotEmpty) {
+        return 'Valhalla ${response.statusCode}: $msg';
+      }
+    } catch (_) {/* not JSON — fall through */}
+    return 'Valhalla returned HTTP ${response.statusCode}';
   }
 
   // --- REQUEST BUILDER ---
@@ -320,6 +404,84 @@ class RoutingException implements Exception {
   String toString() => 'RoutingException: $message';
 }
 
+// --- ALPR EXCLUSION SELECTION ---
+// The public Valhalla server rejects requests whose exclude_polygons exceed
+// ~10,000 m of TOTAL ring perimeter (service_limits.max_exclude_polygons_length).
+// These helpers spend that budget on the cameras that actually matter: the
+// ones near the candidate route, nearest-first, with overlapping cameras
+// merged into one circle.
+
+/// Perimeter (meters) of one ALPR exclusion N-gon: 2·n·r·sin(π/n).
+final double alprExclusionPerimeterMeters = 2 *
+    alprExcludePolygonVertices *
+    alprExcludeRadiusMeters *
+    math.sin(math.pi / alprExcludePolygonVertices);
+
+/// Picks which cameras to exclude, given the [cameras] in the corridor and the
+/// [routePolyline] of a candidate route:
+///
+/// 1. Keep only cameras within [alprAvoidCorridorMeters] of the polyline —
+///    a camera 5 miles off the route can't affect the drive.
+/// 2. Sort nearest-to-route first (those most certainly ON the route).
+/// 3. Skip cameras within [alprAvoidMergeMeters] of an already-picked one
+///    (its 150 m circle already covers them).
+/// 4. Stop when [valhallaExcludePerimeterBudgetMeters] is spent.
+///
+/// [alreadySelected] cameras are kept (and count against the budget) — used by
+/// the refinement pass so the re-route never un-avoids a camera.
+List<LatLng> selectAlprExclusions({
+  required List<LatLng> cameras,
+  required List<LatLng> routePolyline,
+  List<LatLng> alreadySelected = const <LatLng>[],
+}) {
+  if (cameras.isEmpty || routePolyline.length < 2) {
+    return List<LatLng>.of(alreadySelected);
+  }
+
+  // Decimate long polylines so the distance scan stays cheap (2,000 cameras ×
+  // thousands of polyline6 points would jank the UI isolate). Corner-cutting
+  // error from skipping points is far below the 250 m corridor tolerance.
+  const int maxPolyPoints = 800;
+  List<LatLng> poly = routePolyline;
+  if (poly.length > maxPolyPoints) {
+    final int step = (poly.length / maxPolyPoints).ceil();
+    poly = <LatLng>[
+      for (int i = 0; i < poly.length; i += step) poly[i],
+      poly.last,
+    ];
+  }
+
+  // Rank corridor cameras by distance to the route.
+  final List<(double, LatLng)> ranked = <(double, LatLng)>[];
+  for (final LatLng cam in cameras) {
+    final double d = distanceToPolylineMeters(cam, poly);
+    if (d <= alprAvoidCorridorMeters) ranked.add((d, cam));
+  }
+  ranked.sort(((double, LatLng) a, (double, LatLng) b) =>
+      a.$1.compareTo(b.$1));
+
+  final List<LatLng> selected = List<LatLng>.of(alreadySelected);
+  double budget = valhallaExcludePerimeterBudgetMeters -
+      selected.length * alprExclusionPerimeterMeters;
+  const Distance dist = Distance();
+
+  for (final (double, LatLng) entry in ranked) {
+    if (budget < alprExclusionPerimeterMeters) break;
+    final LatLng cam = entry.$2;
+    final bool covered = selected.any((LatLng s) =>
+        dist.as(LengthUnit.Meter, s, cam) < alprAvoidMergeMeters);
+    if (covered) continue;
+    selected.add(cam);
+    budget -= alprExclusionPerimeterMeters;
+  }
+
+  debugPrint('[routing] ALPR selection: ${cameras.length} in corridor bbox → '
+      '${ranked.length} within ${alprAvoidCorridorMeters.round()} m of route → '
+      '${selected.length} excluded (budget cap '
+      '${(valhallaExcludePerimeterBudgetMeters / alprExclusionPerimeterMeters).floor()})');
+  return selected;
+}
+
 // --- OFF-ROUTE GEOMETRY ---
 // Kept in this file to co-locate all routing geometry logic.
 
@@ -372,6 +534,59 @@ double routeDistanceMeters(List<LatLng> polyline, int fromIdx, int toIdx) {
     sum += const Distance().as(LengthUnit.Meter, polyline[i], polyline[i + 1]);
   }
   return sum;
+}
+
+/// Result of projecting a GPS fix onto a route polyline: the on-route point,
+/// the road bearing at that point (degrees, 0 = north), and how far the raw
+/// fix was from the route.
+typedef RouteSnap = ({LatLng point, double headingDeg, double distanceMeters});
+
+/// Projects [p] onto the nearest segment of [polyline] — map-matching for the
+/// displayed avatar. Returns the snapped point, the segment's bearing (so the
+/// avatar can point along the ROAD instead of along GPS heading jitter), and
+/// the snap distance (callers reject snaps beyond [routeSnapMaxDistanceMeters]).
+/// Returns null for degenerate polylines.
+RouteSnap? snapToPolyline(LatLng p, List<LatLng> polyline) {
+  if (polyline.length < 2) return null;
+
+  const double latMeterPerDeg = 111000.0;
+  double bestDist = double.infinity;
+  LatLng bestPoint = polyline.first;
+  double bestHeading = 0;
+
+  for (int i = 0; i < polyline.length - 1; i++) {
+    final LatLng a = polyline[i];
+    final LatLng b = polyline[i + 1];
+    final double cosLat = math.cos(a.latitude * math.pi / 180);
+
+    final double px = (p.longitude - a.longitude) * latMeterPerDeg * cosLat;
+    final double py = (p.latitude - a.latitude) * latMeterPerDeg;
+    final double bx = (b.longitude - a.longitude) * latMeterPerDeg * cosLat;
+    final double by = (b.latitude - a.latitude) * latMeterPerDeg;
+
+    final double lenSq = bx * bx + by * by;
+    final double t = lenSq == 0
+        ? 0
+        : math.max(0.0, math.min(1.0, (px * bx + py * by) / lenSq));
+    final double qx = t * bx;
+    final double qy = t * by;
+    final double dx = px - qx;
+    final double dy = py - qy;
+    final double d = math.sqrt(dx * dx + dy * dy);
+
+    if (d < bestDist) {
+      bestDist = d;
+      bestPoint = LatLng(
+        a.latitude + qy / latMeterPerDeg,
+        a.longitude + qx / (latMeterPerDeg * cosLat),
+      );
+      if (lenSq > 0) {
+        // atan2(east, north) → compass bearing of the segment.
+        bestHeading = (math.atan2(bx, by) * 180 / math.pi + 360) % 360;
+      }
+    }
+  }
+  return (point: bestPoint, headingDeg: bestHeading, distanceMeters: bestDist);
 }
 
 /// Distance from [p] to the segment [a]→[b] in meters, using a flat-earth

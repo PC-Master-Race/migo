@@ -2,7 +2,8 @@
 // Wraps geolocator behind one interface so platform details never leak into
 // screens. Background-capable: stream settings request continued updates.
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show debugPrint, defaultTargetPlatform, TargetPlatform;
 import 'package:geolocator/geolocator.dart';
 
 import '../constants.dart';
@@ -50,8 +51,24 @@ class LocationService {
   Stream<Position> positionStream() {
     final LocationSettings settings = _navigationLocationSettings();
     final LocationKalmanFilter filter = LocationKalmanFilter();
+    // GPS-quality diagnostics: log DEGRADED (accuracy > 30 m) and RECOVERED
+    // transitions, throttled to one line per 5 s, so weak-signal areas show
+    // up in the console with coordinates instead of being invisible.
+    bool wasDegraded = false;
+    DateTime lastLog = DateTime.fromMillisecondsSinceEpoch(0);
     return Geolocator.getPositionStream(locationSettings: settings)
         .map((Position raw) {
+      final bool degraded = !raw.accuracy.isFinite || raw.accuracy > 30;
+      final DateTime now = DateTime.now();
+      if (degraded != wasDegraded &&
+          now.difference(lastLog).inSeconds >= 5) {
+        wasDegraded = degraded;
+        lastLog = now;
+        debugPrint('[gps] ${degraded ? 'DEGRADED' : 'recovered'} — accuracy '
+            '${raw.accuracy.toStringAsFixed(0)} m @ '
+            '${raw.latitude.toStringAsFixed(5)},'
+            '${raw.longitude.toStringAsFixed(5)}');
+      }
       final List<double> smoothed = filter.process(
         raw.latitude,
         raw.longitude,

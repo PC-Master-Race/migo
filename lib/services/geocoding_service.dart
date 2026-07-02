@@ -18,6 +18,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
@@ -53,18 +54,36 @@ class GeocodingService {
     final bool looksLikeAddress = RegExp(r'^\s*\d').hasMatch(q);
 
     // Runs the preferred engine for [q] inside [bbox], falling back to the
-    // other engine if the first finds nothing.
+    // other engine if the first finds nothing. Logs which engine answered and
+    // every coordinate — the diagnostic trail for "pin on the wrong side".
     Future<List<GeocodingResult>> runPass(_GeoBBox bbox) async {
+      List<GeocodingResult> results;
+      String engine;
       if (looksLikeAddress) {
-        final List<GeocodingResult> n = await _nominatimSearch(q,
+        results = await _nominatimSearch(q,
             userPosition: userPosition, bbox: bbox);
-        if (n.isNotEmpty) return n;
-        return _photonSearch(q, userPosition: userPosition, bbox: bbox);
+        engine = 'nominatim';
+        if (results.isEmpty) {
+          results =
+              await _photonSearch(q, userPosition: userPosition, bbox: bbox);
+          engine = 'photon(fallback)';
+        }
+      } else {
+        results =
+            await _photonSearch(q, userPosition: userPosition, bbox: bbox);
+        engine = 'photon';
+        if (results.isEmpty) {
+          results = await _nominatimSearch(q,
+              userPosition: userPosition, bbox: bbox);
+          engine = 'nominatim(fallback)';
+        }
       }
-      final List<GeocodingResult> p =
-          await _photonSearch(q, userPosition: userPosition, bbox: bbox);
-      if (p.isNotEmpty) return p;
-      return _nominatimSearch(q, userPosition: userPosition, bbox: bbox);
+      for (final GeocodingResult r in results) {
+        debugPrint('[geocode] $engine "$q" → "${r.shortName}" @ '
+            '${r.position.latitude.toStringAsFixed(6)},'
+            '${r.position.longitude.toStringAsFixed(6)}');
+      }
+      return results;
     }
 
     // --- Pass 1: LOCAL — within localGeocodeRadiusMiles of the user. ---

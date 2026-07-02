@@ -25,6 +25,11 @@ class LocationKalmanFilter {
   /// Current estimate variance in metres². Negative = uninitialised.
   double _variance = -1;
 
+  /// Consecutive fixes flagged as outliers. When real GPS re-acquires after a
+  /// dead zone, the ESTIMATE is the thing that's wrong — after
+  /// [kalmanOutlierResetCount] agreeing "outliers" we believe them and reset.
+  int _outlierStreak = 0;
+
   /// True once a first fix has seeded the estimate.
   bool get hasEstimate => _variance >= 0;
 
@@ -64,8 +69,23 @@ class LocationKalmanFilter {
       (dtMs / 1000.0) * kalmanMaxSpeedMetresPerSec,
     );
     if (jumpMetres > maxPlausibleMetres * kalmanOutlierFactor) {
+      _outlierStreak++;
+      if (_outlierStreak >= kalmanOutlierResetCount) {
+        // N consecutive fixes all far from the estimate: THEY are right and
+        // the estimate is stale (signal re-acquired somewhere else). Adopt
+        // the new fix outright — this is the "can't lock on" fix. Without it
+        // the filter resists every real fix indefinitely after a jump.
+        _lat = lat;
+        _lng = lng;
+        _timestampMs = timestampMs;
+        _variance = accuracy * accuracy;
+        _outlierStreak = 0;
+        return <double>[lat, lng];
+      }
       // Treat as a very inaccurate measurement so it barely moves the estimate.
       accuracy = accuracy * 8.0;
+    } else {
+      _outlierStreak = 0;
     }
 
     // --- Update step: blend the estimate toward the measurement. ---

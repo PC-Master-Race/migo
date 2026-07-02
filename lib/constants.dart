@@ -29,7 +29,14 @@ const String satelliteRoadsTileUrlTemplate =
 
 /// User-Agent sent with every tile/Overpass/Nominatim request. OSM's usage
 /// policy requires apps to identify themselves; generic agents get blocked.
-const String osmUserAgent = 'bravo-maps-app (privacy-first OSS project)';
+// NOTE: 2026-07-01 the previous UA ('bravo-maps-app (privacy-first OSS
+// project)') began getting 502s from FOSSGIS Valhalla on every network/method
+// while other clients worked — almost certainly auto-blocklisted after heavy
+// dev testing (recalc loops + retries). Per OSM operations etiquette the UA
+// must identify the app AND give a contact; this one does. Keep request
+// volume polite or the new one gets blocked too.
+const String osmUserAgent =
+    'Migo/0.1 (dev; +https://github.com/PC-Master-Race/migo; rubensmailbag@gmail.com)';
 
 /// Overpass API endpoint used to query OSM data (speed limits, POIs, fuel
 /// stations). The main public instance; can be swapped for a self-hosted one.
@@ -108,8 +115,35 @@ const int locationDistanceFilterMeters = 3;
 const int locationIntervalMs = 1000;
 
 /// Cap (seconds) on how far the avatar will dead-reckon forward from the last
-/// fix without a fresh one — prevents it flinging across the map on signal loss.
-const double markerPredictMaxSeconds = 3.0;
+/// fix without a fresh one — prevents it flinging across the map on signal
+/// loss. Lowered from 3.0: at 45 mph, 3 s = 60 m of blind projection, which
+/// overshot every turn and caused the snap-back half of the rubber-banding.
+const double markerPredictMaxSeconds = 1.5;
+
+// --- MARKER DISPLAY SMOOTHING (anti rubber-band) ---
+// The displayed avatar is a SEPARATE, continuously-eased position that chases
+// the dead-reckoned target. Re-anchoring on each GPS fix used to TELEPORT the
+// avatar backward (projection ahead vs. ~1 s-old smoothed fix behind) — the
+// visible "surge". Easing turns that discontinuity into a short glide.
+
+/// Time constant (seconds) of the exponential ease toward the target position.
+/// ~0.35 s: converges well within one 1 Hz fix interval but absorbs jumps.
+const double markerEaseTauSeconds = 0.35;
+
+/// If the displayed position is further than this (meters) from the target,
+/// jump instantly instead of gliding — real relocations (tunnel exit, app
+/// resume) shouldn't animate the car across the map.
+const double markerTeleportMeters = 80.0;
+
+// --- SNAP-TO-ROUTE MAP MATCHING ---
+// During active navigation the route polyline is ground truth for where the
+// car can be. Projecting each fix onto it is the "glued to the road" trick —
+// GPS scatter onto parallel streets and mid-turn drift disappear.
+
+/// Max distance (meters) between a GPS fix and the route for the fix to be
+/// snapped onto the route. Above this the user is genuinely off-route (matches
+/// [offRouteThresholdMeters] logic) and we show the raw position.
+const double routeSnapMaxDistanceMeters = 35.0;
 
 /// Speeds below this (mph) display as 0 on the HUD — raw GPS jitter while
 /// standing still otherwise shows phantom 1–2 mph readings.
@@ -136,6 +170,32 @@ const double kalmanMaxSpeedMetresPerSec = 70.0;
 
 /// Slack multiplier on the outlier check so brief speed bursts aren't flagged.
 const double kalmanOutlierFactor = 1.5;
+
+/// Consecutive "outlier" fixes after which the filter RESETS to the newest fix
+/// instead of resisting it. Without this, a legitimate position jump (signal
+/// re-acquired after an urban canyon / dead zone) is rejected forever: every
+/// real fix looks like an outlier vs. the stale estimate, the avatar freezes,
+/// and the app "can't lock on". 3 agreeing fixes ≈ 3 s = the real position.
+const int kalmanOutlierResetCount = 3;
+
+// --- WEAK-SIGNAL HANDLING ---
+// In poor-GPS areas (canyons, tree cover, dense buildings) fix accuracy
+// degrades from ~5 m to 30-100+ m. Fixed thresholds tuned for good signal
+// misbehave there: fixes stop snapping to the route and false "off-route"
+// recalculations fire from positions that are just noise — producing wrong
+// directions. Scale both thresholds with the fix's reported accuracy instead.
+
+/// Snap threshold multiplier on fix accuracy during navigation. A 40 m-
+/// accuracy fix may legitimately sit 60 m off the road we're driving on.
+const double routeSnapAccuracyFactor = 1.5;
+
+/// Hard cap (meters) on the accuracy-scaled snap threshold, so a 500 m
+/// cell-tower fix can't teleport the car onto a route it may have left.
+const double routeSnapMaxDistanceCapMeters = 100.0;
+
+/// Off-route multiplier on fix accuracy: the user only counts as off-route
+/// when they're further from the route than the fix could plausibly be wrong.
+const double offRouteAccuracyFactor = 1.5;
 
 // --- SPEED LIMIT LOOKUP ---
 
@@ -248,6 +308,14 @@ const double userMarkerSize = 26.0;
 /// Public Valhalla routing endpoint (OSM-hosted, no API key required).
 const String valhallaApiUrl = 'https://valhalla1.openstreetmap.de/route';
 
+/// Extra attempts after a transient (5xx/network) Valhalla failure. Kept LOW
+/// deliberately: each attempt may fire a POST + a GET, and hammering the free
+/// community server is how we (probably) got the old User-Agent blocklisted.
+const int valhallaMaxRetries = 1;
+
+/// Base delay between Valhalla retries (multiplied by the attempt number).
+const Duration valhallaRetryDelay = Duration(milliseconds: 800);
+
 /// Nominatim geocoding endpoint (OSM-hosted, no API key, no tracking).
 const String nominatimSearchUrl = 'https://nominatim.openstreetmap.org/search';
 
@@ -326,6 +394,26 @@ const double alprExcludeRadiusMeters = 150.0;
 /// Number of polygon vertices used to approximate each ALPR exclusion circle.
 /// 8 is a good balance between accuracy and Valhalla request payload size.
 const int alprExcludePolygonVertices = 8;
+
+// --- ALPR AVOIDANCE SCALING ---
+// The public Valhalla server enforces service_limits.max_exclude_polygons_length
+// — the TOTAL perimeter of ALL exclude_polygons combined, default 10,000 m.
+// One 150 m-radius octagon costs ~919 m of that budget, so only ~10 polygons
+// fit per request. Sending the whole corridor's cameras (hundreds+ in SoCal)
+// gets the request rejected with HTTP 400 → "routing dies". So we compute a
+// baseline route first and spend the budget ONLY on cameras actually near it.
+
+/// Perimeter budget (meters) we allow ourselves per request. Kept under the
+/// server's 10,000 m limit with a safety margin.
+const double valhallaExcludePerimeterBudgetMeters = 9500.0;
+
+/// Only cameras within this distance (meters) of the candidate route become
+/// exclusion polygons — cameras elsewhere in the bbox can't affect the drive.
+const double alprAvoidCorridorMeters = 250.0;
+
+/// Cameras closer than this (meters) to an already-selected camera are
+/// considered covered by its exclusion circle and skipped (cluster merge).
+const double alprAvoidMergeMeters = 120.0;
 
 // --- TTS ---
 // ElevenLabs provides high-quality voiced navigation instructions. The app

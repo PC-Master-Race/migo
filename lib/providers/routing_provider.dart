@@ -3,7 +3,9 @@
 // widgets only read/watch — they never call RoutingService directly.
 
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -58,6 +60,16 @@ RouteNotifier routeNotifierOf(WidgetRef ref) =>
     ref.read(activeRouteProvider.notifier);
 
 // ============================================================
+// ROUTE NOTICE (one-shot user-facing message)
+// ============================================================
+
+/// One-shot informational message about the last route calculation, e.g.
+/// "Avoiding 7 camera zones" or "Camera avoidance failed — showing fastest
+/// route". map_screen listens, shows a SnackBar, and resets it to null.
+final StateProvider<String?> routeNoticeProvider =
+    StateProvider<String?>((Ref ref) => null);
+
+// ============================================================
 // NOTIFIER
 // ============================================================
 
@@ -74,9 +86,13 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
   /// Calculates a route from the user's current GPS position to [destination]
   /// using the current [RoutePreferences]. Cancels any in-flight calculation.
   ///
-  /// When the avoid-ALPR preference is on, nearby ALPR camera locations are
-  /// fetched here and passed as exclude zones so the route actually routes
-  /// around them (just like avoid tolls/freeways).
+  /// When the avoid-ALPR preference is on, we CANNOT hand every corridor
+  /// camera to Valhalla — the public server rejects requests over ~10,000 m of
+  /// total exclude-polygon perimeter (~10 camera circles), and SoCal corridors
+  /// hold hundreds. Instead: compute a baseline route, exclude only the
+  /// cameras near it (nearest-first, budget-capped), re-route, and refine once
+  /// in case the detour passes new cameras. On any avoidance failure we fall
+  /// back to the baseline route and tell the user, instead of dying silently.
   Future<void> calculate({required LatLng destination}) async {
     final int token = ++_calcToken;
     state = const AsyncValue<BravoRoute?>.loading();
@@ -93,28 +109,112 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
     final RoutePreferences prefs = _ref.read(routePreferencesProvider);
     final LatLng origin = LatLng(position.latitude, position.longitude);
 
-    // Fetch ALPR locations to avoid only when the toggle is on.
-    List<LatLng> alpr = const <LatLng>[];
-    if (prefs.avoidAlprCameras) {
-      alpr = await _ref
-          .read(alprServiceProvider)
-          .fetchAlprForRoute(origin, destination);
-      if (token != _calcToken) return; // a newer request started during fetch
+    if (!prefs.avoidAlprCameras) {
+      final AsyncValue<BravoRoute?> result =
+          await AsyncValue.guard<BravoRoute?>(
+        () => _service.calculateRoute(
+          origin: origin,
+          destination: destination,
+          preferences: prefs,
+        ),
+      );
+      if (token != _calcToken) return;
+      state = result;
+      return;
     }
 
-    final AsyncValue<BravoRoute?> result = await AsyncValue.guard<BravoRoute?>(
-      () => _service.calculateRoute(
+    await _calculateAvoidingAlpr(token, origin, destination, prefs);
+  }
+
+  /// Baseline → filter cameras to the route → re-route → refine once.
+  Future<void> _calculateAvoidingAlpr(
+    int token,
+    LatLng origin,
+    LatLng destination,
+    RoutePreferences prefs,
+  ) async {
+    // 1. Baseline route WITHOUT exclusions — tells us which cameras matter.
+    final BravoRoute baseline;
+    try {
+      baseline = await _service.calculateRoute(
         origin: origin,
         destination: destination,
         preferences: prefs,
-        alprLocations: alpr,
-      ),
-    );
-
-    // Ignore if a newer calculation has started since we were called.
+      );
+    } catch (e, s) {
+      // Even the plain route failed — this is a real error, surface it.
+      if (token != _calcToken) return;
+      state = AsyncValue<BravoRoute?>.error(e, s);
+      return;
+    }
     if (token != _calcToken) return;
-    state = result;
+
+    // 2. Cameras in the corridor bbox (cheap DB query, capped at 2000).
+    List<LatLng> corridor = const <LatLng>[];
+    try {
+      corridor = await _ref
+          .read(alprServiceProvider)
+          .fetchAlprForRoute(origin, destination);
+    } catch (e) {
+      debugPrint('[routing] ALPR corridor fetch failed: $e');
+    }
+    if (token != _calcToken) return;
+
+    // 3. Spend the exclusion budget on cameras actually near the route.
+    List<LatLng> selected = selectAlprExclusions(
+      cameras: corridor,
+      routePolyline: baseline.waypoints,
+    );
+    if (selected.isEmpty) {
+      // Nothing on the route to avoid — the baseline IS the avoidance route.
+      state = AsyncValue<BravoRoute?>.data(baseline);
+      return;
+    }
+
+    // 4. Re-route around the selected cameras; refine once if the detour
+    // brushes past cameras that weren't near the baseline.
+    BravoRoute best = baseline;
+    try {
+      BravoRoute avoid = await _service.calculateRoute(
+        origin: origin,
+        destination: destination,
+        preferences: prefs,
+        alprLocations: selected,
+      );
+      if (token != _calcToken) return;
+      best = avoid;
+
+      final List<LatLng> refined = selectAlprExclusions(
+        cameras: corridor,
+        routePolyline: avoid.waypoints,
+        alreadySelected: selected,
+      );
+      if (refined.length > selected.length) {
+        selected = refined;
+        avoid = await _service.calculateRoute(
+          origin: origin,
+          destination: destination,
+          preferences: prefs,
+          alprLocations: refined,
+        );
+        if (token != _calcToken) return;
+        best = avoid;
+      }
+      _setNotice('Avoiding ${selected.length} '
+          'camera zone${selected.length == 1 ? '' : 's'} on this route');
+    } catch (e) {
+      // Avoidance failed (Valhalla rejection/timeout) — keep the user moving
+      // on the baseline route and say so, instead of showing nothing.
+      debugPrint('[routing] ALPR avoidance failed, using baseline route: $e');
+      _setNotice('Camera avoidance unavailable for this route — '
+          'showing fastest route');
+    }
+    if (token != _calcToken) return;
+    state = AsyncValue<BravoRoute?>.data(best);
   }
+
+  void _setNotice(String message) =>
+      _ref.read(routeNoticeProvider.notifier).state = message;
 
   /// Recalculates from the current GPS position using the same destination
   /// and updated preferences. Called on preference toggle changes or off-route.
@@ -164,6 +264,13 @@ final Provider<void> prefAutoRecalcProvider = Provider<void>((Ref ref) {
 /// True when the user's GPS position is more than [offRouteThresholdMeters]
 /// from the computed route polyline. Watched by map_screen to trigger
 /// recalculation.
+///
+/// ACCURACY-AWARE: in weak-signal areas a fix can sit 50-100+ m from the road
+/// while the car is ON it. Declaring off-route from such a fix triggers a
+/// recalculation FROM A POSITION THAT'S JUST NOISE — the router then issues
+/// directions for somewhere the user isn't ("the directions are wrong").
+/// The user only counts as off-route when their distance from the route
+/// exceeds what the fix's own accuracy could explain.
 final Provider<bool> offRouteProvider = Provider<bool>((Ref ref) {
   final BravoRoute? route = ref.watch(activeRouteProvider).valueOrNull;
   if (route == null || route.waypoints.isEmpty) return false;
@@ -171,10 +278,19 @@ final Provider<bool> offRouteProvider = Provider<bool>((Ref ref) {
   final position = ref.watch(positionStreamProvider).valueOrNull;
   if (position == null) return false;
 
+  final double accuracy =
+      (position.accuracy.isFinite && position.accuracy > 0)
+          ? position.accuracy
+          : 0;
+  final double threshold = math.max(
+    offRouteThresholdMeters,
+    accuracy * offRouteAccuracyFactor,
+  );
+
   final LatLng userPoint = LatLng(position.latitude, position.longitude);
   final double dist =
       distanceToPolylineMeters(userPoint, route.waypoints);
-  return dist > offRouteThresholdMeters;
+  return dist > threshold;
 });
 
 // ============================================================
