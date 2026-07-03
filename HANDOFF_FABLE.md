@@ -169,6 +169,43 @@ hardcoding anything.
 >    (free at cloud.maptiler.com, 100k req/mo); without it the app stays on
 >    raster. (Stadia was rejected: free tier now only a 14-day trial + ~28k.)
 
+> **SESSION UPDATE 2 (2026-07-02):** shakedown fixes + avatar system.
+> - **Release builds work now**: AndroidManifest was missing INTERNET
+>   permission (debug injects it silently; release = blank map). Fixed.
+> - **Routing outage**: FOSSGIS Valhalla was 502-ing from Ruben's region on
+>   every network/method (even browser) while healthy elsewhere. Added: retry
+>   w/ backoff, GET-request fallback, proper identifying User-Agent
+>   ('Migo/0.1 (+repo; email)'). Self-hosting Valhalla is the real fix.
+> - **Search**: tiered near(15mi)→region(50mi)→US-wide (wide gated on query
+>   specificity), nearby results always ranked first, distance labels on each
+>   suggestion, results panel capped at 40% screen height.
+> - **Favorites**: long-press chip → rename/delete (provider rename() added).
+> - **Settings**: the ALPR-avoidance toggle and Default-route-preference were
+>   DEAD (routing never read them) — now they seed routePreferencesProvider
+>   as defaults; route-options sheet overrides per trip. Licenses tile wired,
+>   stale bravomaps.com URL removed. Onboarding page-dots no longer overlap
+>   the Continue button.
+> - **AVATAR SYSTEM (big)**: new users show a rocking mystery EGG (racing
+>   stripes, peeking eyes) until archetypeRevealSessionCount (3) sessions,
+>   then a hatch-celebration dialog reveals the earned archetype (Zen is no
+>   longer the freebie default). Earned archetypes accumulate in
+>   ArchetypeProfile.unlockedArchetypes (NEEDS MIGRATION:
+>   supabase/migration_avatar_pool.sql — run before next build!). Tap your
+>   map avatar → picker sheet (Automatic or any earned archetype; locked =
+>   silhouettes). Painter now supports per-archetype VEHICLES — all nine
+>   implemented: Zen=cloud, Rocket=rocket ship, Phantom=UFO (abduction beam,
+>   no plates to read), Ghost=spectral float, Grandpa=vintage sedan w/
+>   eternal blinker, NightOwl=crescent moon, Chaos=shopping cart w/ wobbling
+>   caster, StreetRat=longboard, Scout=open jeep. Rare archetypes still ride
+>   the classic car (design ideas: Creature=monster truck, Guardian=winged
+>   car, SilkHands=hovering car).
+> - **Heading-up camera**: map rotates road-ahead-up during navigation
+>   (smoothed shortest-arc), resets north-up after; all markers pinned
+>   upright. True TILTED view needs the MapLibre GL migration (maplibre_gl
+>   consumes the same MapTiler style URL) — planned, not started.
+> - **STILL PENDING**: real drive test of GPS smoothing + snap-to-route +
+>   rotation; Valhalla recovery check; MapTiler dark map field test.
+
 These are the three things we were stuck on. Priority order is roughly 1 → 3.
 
 ### PROBLEM 1 — ALPR avoidance routing "dies" ⚠️ (highest priority)

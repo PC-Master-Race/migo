@@ -34,10 +34,26 @@ final StateProvider<LatLng?> destinationProvider =
 
 /// The user's current route option toggles. Watched by [activeRouteProvider]
 /// — any change triggers an immediate recalculation.
+///
+/// SETTINGS ARE THE DEFAULTS: the Settings screen's "ALPR camera avoidance"
+/// toggle and "Default route preference" seed this state (previously they
+/// were dead switches that routing never read — the flagship privacy toggle
+/// did nothing). The route-options sheet then overrides per trip. Changing
+/// either setting re-seeds this provider (per-trip tweaks reset — that's the
+/// meaning of "default").
 final StateProvider<RoutePreferences> routePreferencesProvider =
-    StateProvider<RoutePreferences>(
-  (Ref ref) => const RoutePreferences(),
-);
+    StateProvider<RoutePreferences>((Ref ref) {
+  final bool avoidAlpr = ref.watch(alprAvoidanceEnabledProvider);
+  final RoutePreference defaultPref = ref.watch(routePreferenceProvider);
+  return RoutePreferences(
+    avoidAlprCameras: avoidAlpr,
+    optimizeFor: switch (defaultPref) {
+      RoutePreference.fastest => RouteOptimization.fastest,
+      RoutePreference.shortest => RouteOptimization.shortest,
+      RoutePreference.eco => RouteOptimization.mostFuelEfficient,
+    },
+  );
+});
 
 // ============================================================
 // ACTIVE ROUTE (StateNotifier)
@@ -126,20 +142,25 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
     await _calculateAvoidingAlpr(token, origin, destination, prefs);
   }
 
-  /// Baseline → filter cameras to the route → re-route → refine once.
+  /// LOCAL-FIRST avoidance (the phone owns the camera DB, so use it):
+  /// 1. one server call for the route + 2 alternates (no exclusions, no
+  ///    server limits), 2. score all candidates LOCALLY against the camera
+  ///    DB and take the cleanest, 3. only if cameras remain on that route,
+  ///    fall back to server-side exclusion polygons for those few.
   Future<void> _calculateAvoidingAlpr(
     int token,
     LatLng origin,
     LatLng destination,
     RoutePreferences prefs,
   ) async {
-    // 1. Baseline route WITHOUT exclusions — tells us which cameras matter.
-    final BravoRoute baseline;
+    // 1. Route + alternates in ONE request.
+    final List<BravoRoute> candidates;
     try {
-      baseline = await _service.calculateRoute(
+      candidates = await _service.calculateRoutes(
         origin: origin,
         destination: destination,
         preferences: prefs,
+        alternates: 2,
       );
     } catch (e, s) {
       // Even the plain route failed — this is a real error, surface it.
@@ -160,6 +181,31 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
     }
     if (token != _calcToken) return;
 
+    // Score each candidate locally; cleanest wins (ties → fastest, which is
+    // the order Valhalla returns them in).
+    BravoRoute baseline = candidates.first;
+    int baselineCameras =
+        countCamerasNearRoute(corridor, baseline.waypoints);
+    for (final BravoRoute alt in candidates.skip(1)) {
+      final int n = countCamerasNearRoute(corridor, alt.waypoints);
+      if (n < baselineCameras) {
+        baseline = alt;
+        baselineCameras = n;
+      }
+    }
+    debugPrint('[routing] ${candidates.length} candidates; cleanest has '
+        '$baselineCameras camera(s) nearby');
+
+    if (baselineCameras == 0) {
+      // A camera-free route existed all along — no exclusions needed, no
+      // server limits touched. This should be the common case.
+      state = AsyncValue<BravoRoute?>.data(baseline);
+      if (corridor.isNotEmpty) {
+        _setNotice('Route is clear of all known cameras');
+      }
+      return;
+    }
+
     // 3. Spend the exclusion budget on cameras actually near the route.
     List<LatLng> selected = selectAlprExclusions(
       cameras: corridor,
@@ -171,45 +217,72 @@ class RouteNotifier extends StateNotifier<AsyncValue<BravoRoute?>> {
       return;
     }
 
-    // 4. Re-route around the selected cameras; refine once if the detour
-    // brushes past cameras that weren't near the baseline.
+    // 4. Re-route around the selected cameras. ADAPTIVE: if Valhalla rejects
+    // the request, retry with progressively fewer zones (nearest-to-route
+    // first, so the most important cameras are kept) instead of giving up.
+    // Avoiding SOME cameras always beats avoiding none — this is the app's
+    // core feature and it must degrade, not die.
     BravoRoute best = baseline;
-    try {
-      BravoRoute avoid = await _service.calculateRoute(
-        origin: origin,
-        destination: destination,
-        preferences: prefs,
-        alprLocations: selected,
-      );
-      if (token != _calcToken) return;
-      best = avoid;
-
-      final List<LatLng> refined = selectAlprExclusions(
-        cameras: corridor,
-        routePolyline: avoid.waypoints,
-        alreadySelected: selected,
-      );
-      if (refined.length > selected.length) {
-        selected = refined;
-        avoid = await _service.calculateRoute(
+    List<LatLng> attempt = selected;
+    bool avoided = false;
+    while (attempt.isNotEmpty) {
+      try {
+        BravoRoute avoid = await _service.calculateRoute(
           origin: origin,
           destination: destination,
           preferences: prefs,
-          alprLocations: refined,
+          alprLocations: attempt,
         );
         if (token != _calcToken) return;
         best = avoid;
+        avoided = true;
+
+        // Refinement pass (full set only): the detour may pass NEW cameras.
+        if (attempt.length == selected.length) {
+          final List<LatLng> refined = selectAlprExclusions(
+            cameras: corridor,
+            routePolyline: avoid.waypoints,
+            alreadySelected: attempt,
+          );
+          if (refined.length > attempt.length) {
+            try {
+              avoid = await _service.calculateRoute(
+                origin: origin,
+                destination: destination,
+                preferences: prefs,
+                alprLocations: refined,
+              );
+              if (token != _calcToken) return;
+              best = avoid;
+              attempt = refined;
+            } catch (_) {
+              // Refinement is a bonus — keep the working avoidance route.
+            }
+          }
+        }
+        break;
+      } catch (e) {
+        debugPrint('[routing] avoidance failed with ${attempt.length} '
+            'zones: $e');
+        if (attempt.length <= 3) break; // too few to halve further
+        attempt = attempt.sublist(0, (attempt.length / 2).ceil());
+        debugPrint('[routing] retrying with ${attempt.length} zones');
       }
-      _setNotice('Avoiding ${selected.length} '
-          'camera zone${selected.length == 1 ? '' : 's'} on this route');
-    } catch (e) {
-      // Avoidance failed (Valhalla rejection/timeout) — keep the user moving
-      // on the baseline route and say so, instead of showing nothing.
-      debugPrint('[routing] ALPR avoidance failed, using baseline route: $e');
+    }
+
+    if (token != _calcToken) return;
+    if (avoided) {
+      final int n = attempt.length;
+      _setNotice(n == selected.length
+          ? 'Avoiding $n camera zone${n == 1 ? '' : 's'} on this route'
+          : 'Avoiding the $n most critical camera zones '
+              '(route limits reached)');
+    } else {
+      // Every attempt failed — keep the user moving on the baseline route
+      // and say so, instead of showing nothing.
       _setNotice('Camera avoidance unavailable for this route — '
           'showing fastest route');
     }
-    if (token != _calcToken) return;
     state = AsyncValue<BravoRoute?>.data(best);
   }
 
@@ -399,8 +472,7 @@ class _NavAnnouncer {
       _stepIndex = nav.currentStepIndex;
       _legMeters = remaining;
       _fired.clear();
-      _speak('In ${formatUsDistance(remaining, spoken: true)}, '
-          '${_instr(nav.currentStep)}');
+      _speak(_phrase(nav, remaining));
       return;
     }
 
@@ -409,18 +481,37 @@ class _NavAnnouncer {
       final String key = 't${tier.round()}';
       if (remaining <= tier && !_fired.contains(key)) {
         _fired.add(key);
-        _speak('In ${formatUsDistance(remaining, spoken: true)}, '
-            '${_instr(nav.currentStep)}');
+        _speak(_phrase(nav, remaining));
       }
     }
   }
 
+  /// Builds the spoken sentence. When the leg AFTER this maneuver is short
+  /// (back-to-back turns), the follow-up is CHAINED into the same sentence —
+  /// "turn right onto Parkway, then turn left onto Main" — so the second
+  /// move is never a last-second surprise.
+  String _phrase(NavigationState nav, double remainingMeters) {
+    String text = 'In ${formatUsDistance(remainingMeters, spoken: true)}, '
+        '${_instr(nav.currentStep)}';
+    final ManeuverStep? next = nav.nextStep;
+    if (next != null &&
+        nav.currentStep.distanceMiles * metersPerMile <
+            navChainManeuverMeters) {
+      text += ', then ${_instr(next)}';
+    }
+    return text;
+  }
+
   /// Reminder distances (meters), filtered to ones that make sense for the leg.
+  /// One fraction-based reminder (~25% of the leg remaining) for EVERY leg
+  /// length, plus the fixed near alert — the lead-in covers the start, this
+  /// covers the long quiet middle, the near alert covers the turn itself.
   List<double> _tierMeters(double legMeters) {
     final double legMiles = legMeters / metersPerMile;
-    final List<double> miles = legMiles >= navLongLegMiles
-        ? <double>[navLongLegFarAlertMiles, navNearAlertMiles]
-        : <double>[legMiles * navShortLegRemainingFraction, navNearAlertMiles];
+    final List<double> miles = <double>[
+      legMiles * navTurnReminderFraction,
+      navNearAlertMiles,
+    ];
 
     final List<double> out = <double>[];
     for (final double m in miles) {
@@ -475,10 +566,13 @@ final FutureProvider<List<GeocodingResult>> geocodeResultsProvider =
 
   // read (not watch) the position — we don't want every GPS update to
   // re-fire a search; only query changes should trigger that.
+  // FALLBACK CHAIN: raw fix → the avatar's displayed position (survives brief
+  // stream gaps). Without an anchor the near-first tiers can't run, and
+  // searches used to jump straight to US-wide ("1515 ve" → San Fernando).
   final position = ref.read(positionStreamProvider).valueOrNull;
   final LatLng? userPos = position != null
       ? LatLng(position.latitude, position.longitude)
-      : null;
+      : ref.read(displayedPositionProvider);
 
   return GeocodingService().search(query, userPosition: userPos);
 });

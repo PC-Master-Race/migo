@@ -90,6 +90,19 @@ class SavedLocationNotifier extends StateNotifier<List<SavedLocation>> {
     await _persist();
   }
 
+  // ---------------------------------------------------------------- rename --
+
+  /// Renames the saved location with [id] to [newLabel] (trimmed; ignored
+  /// when blank so a rename can't produce an unlabeled chip).
+  Future<void> rename(String id, String newLabel) async {
+    final String label = newLabel.trim();
+    if (label.isEmpty) return;
+    state = state
+        .map((SavedLocation l) => l.id == id ? l.copyWith(label: label) : l)
+        .toList();
+    await _persist();
+  }
+
   // ---------------------------------------------------------------- helpers -
 
   Future<void> _persist() async {

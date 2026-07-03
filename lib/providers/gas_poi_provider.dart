@@ -1,8 +1,10 @@
 // gas_poi_provider.dart — Riverpod state for gas stations and POIs.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_ce/hive.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../constants.dart';
 import '../models/gas_model.dart';
 import '../models/poi_model.dart';
 import '../services/gas_price_service.dart';
@@ -14,9 +16,17 @@ import 'map_provider.dart'; // for currentZoomProvider
 // Gas stations
 // ---------------------------------------------------------------------------
 
-/// Whether the gas layer is enabled. User toggles via map control.
+/// Whether the gas layer is enabled. User toggles via map control or
+/// Settings. PERSISTED — a layer choice must survive an app restart
+/// ("settings sometimes don't stick" drive-test bug: this was a bare
+/// StateProvider that reset every launch).
 final StateProvider<bool> gasLayerEnabledProvider =
-    StateProvider<bool>((_) => false);
+    StateProvider<bool>((Ref ref) {
+  ref.listenSelf((bool? prev, bool next) =>
+      Hive.box<dynamic>(hiveBoxSettings).put('gas_layer_enabled', next));
+  return Hive.box<dynamic>(hiveBoxSettings)
+      .get('gas_layer_enabled', defaultValue: false) as bool;
+});
 
 final AutoDisposeFutureProvider<List<GasStation>> nearbyGasStationsProvider =
     AutoDisposeFutureProvider<List<GasStation>>(

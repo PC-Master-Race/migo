@@ -6,6 +6,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_ce/hive.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../constants.dart';
@@ -20,8 +21,14 @@ import 'location_provider.dart';
 
 /// Whether the hazard pin layer is visible on the map.
 /// Defaults to true — hazards are an on-by-default safety feature.
+/// PERSISTED: turning it off (or on) survives app restarts.
 final StateProvider<bool> hazardLayerEnabledProvider =
-    StateProvider<bool>((_) => true);
+    StateProvider<bool>((Ref ref) {
+  ref.listenSelf((bool? prev, bool next) =>
+      Hive.box<dynamic>(hiveBoxSettings).put('hazard_layer_enabled', next));
+  return Hive.box<dynamic>(hiveBoxSettings)
+      .get('hazard_layer_enabled', defaultValue: true) as bool;
+});
 
 // ============================================================
 // NEARBY HAZARDS — periodic fetch

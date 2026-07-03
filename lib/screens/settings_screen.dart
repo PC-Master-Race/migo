@@ -9,13 +9,18 @@ import 'package:hive_ce/hive.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../constants.dart';
+import '../models/archetype_model.dart';
 import '../theme/bravo_theme.dart';
+import '../providers/archetype_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/gas_poi_provider.dart';
 import '../providers/alpr_provider.dart'; // alprServiceProvider
 import '../providers/location_provider.dart'; // positionStreamProvider
 import '../services/alpr_service.dart'; // AlprImportResult
 import '../services/map_service.dart'; // MapZoomMode
+import '../widgets/avatar/avatar_painter.dart';
+import '../widgets/avatar/avatar_picker_sheet.dart';
+import '../widgets/avatar/mystery_egg.dart';
 
 // --- THEME-AWARE PALETTE HELPERS ---
 // Derive every surface/text color from the active theme so the screen reads
@@ -155,6 +160,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ]),
           const SizedBox(height: 20),
+          _sectionHeader('Avatar'),
+          _card(<Widget>[_buildAvatarTile(ink)]),
+          const SizedBox(height: 20),
           _sectionHeader('Appearance'),
           _card(<Widget>[
             Padding(
@@ -272,17 +280,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-                Text('Default zoom mode',
+                Text('Default map zoom',
                     style: TextStyle(color: ink, fontSize: 14, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 10),
                 _ChipRow<MapZoomMode>(
                   // Street/satellite mode is disabled for now (see
-                  // MapService.zoomModeForLevel) — only offer cartoon + hybrid.
+                  // MapService.zoomModeForLevel). The remaining two modes
+                  // differ only by starting zoom, so label them honestly:
+                  // "cartoon" = zoomed out, "hybrid" = close up. (Internal
+                  // enum names deliberately unchanged — see naming note.)
                   values: MapZoomMode.values
                       .where((MapZoomMode m) => m != MapZoomMode.street)
                       .toList(),
                   current: ref.watch(defaultZoomModeProvider),
-                  label: (MapZoomMode v) => v.name[0].toUpperCase() + v.name.substring(1),
+                  label: (MapZoomMode v) => switch (v) {
+                    MapZoomMode.cartoon => 'Zoomed out',
+                    MapZoomMode.hybrid => 'Close up',
+                    MapZoomMode.street => 'Satellite',
+                  },
                   onSelect: (MapZoomMode v) => ref.read(defaultZoomModeProvider.notifier).set(v),
                 ),
               ]),
@@ -314,13 +329,78 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _card(<Widget>[
             const _InfoTile(label: 'Version', value: '0.7.0-alpha'),
             _dividerLine(context),
-            const _InfoTile(label: 'Privacy policy', value: 'bravomaps.com/privacy'),
+            // TODO: [publish a real privacy policy URL before release] —
+            // the old bravomaps.com link was pre-rename and never existed.
+            const _InfoTile(label: 'Privacy policy', value: 'Coming before release'),
             _dividerLine(context),
-            const _InfoTile(label: 'Open source licenses', value: ''),
+            _InfoTile(
+              label: 'Open source licenses',
+              value: '',
+              onTap: () => showLicensePage(
+                context: context,
+                applicationName: 'Migo',
+                applicationVersion: '0.7.0-alpha',
+              ),
+            ),
           ]),
           const SizedBox(height: 32),
         ],
       ),
+    );
+  }
+
+  /// "My avatars" — live preview of what's on the map right now, the earned
+  /// count, and a tap-through to the picker sheet. (The map avatar itself is
+  /// also tappable, but a feature only reachable by secret handshake isn't a
+  /// feature — this is the front door.)
+  Widget _buildAvatarTile(Color ink) {
+    final ArchetypeProfile? profile =
+        ref.watch(archetypeNotifierProvider).valueOrNull;
+
+    // Preview mirrors the map marker's rules: Tux for creator builds,
+    // the egg pre-reveal, otherwise the displayed archetype.
+    final Widget preview;
+    if (profile == null) {
+      preview = Icon(Icons.face_retouching_natural_rounded,
+          color: migoCoral, size: 32);
+    } else if (creatorMode && profile.selectedArchetype == null) {
+      preview = AvatarWidget(
+          archetype: profile.currentArchetype,
+          size: 44,
+          animate: false,
+          tux: true);
+    } else if (profile.rareArchetype == null &&
+        profile.sessionCount < archetypeRevealSessionCount) {
+      preview = const MysteryEggWidget(size: 44, animate: false);
+    } else {
+      preview = AvatarWidget(
+          archetype: profile.displayArchetype,
+          rareArchetype: profile.rareArchetype,
+          size: 44,
+          animate: false);
+    }
+
+    final int earned = profile?.unlockedArchetypes.length ?? 0;
+    final String subtitle = profile != null &&
+            profile.rareArchetype == null &&
+            profile.sessionCount < archetypeRevealSessionCount &&
+            !creatorMode
+        ? 'Still hatching — keep driving to reveal your avatar!'
+        : '$earned of ${DrivingArchetype.values.length} earned · '
+            'tap to choose which one you show';
+
+    return ListTile(
+      leading: SizedBox(width: 40, child: Center(child: preview)),
+      title: Text('My avatars',
+          style: TextStyle(
+              color: ink, fontSize: 14, fontWeight: FontWeight.w600)),
+      subtitle: Text(subtitle,
+          style: TextStyle(
+              color: ink.withValues(alpha: 0.5), fontSize: 12, height: 1.4)),
+      trailing:
+          Icon(Icons.chevron_right_rounded, color: ink.withValues(alpha: 0.3)),
+      onTap: () => showAvatarPickerSheet(context),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
     );
   }
 
@@ -435,18 +515,22 @@ class _ChipRow<T> extends StatelessWidget {
 }
 
 class _InfoTile extends StatelessWidget {
-  const _InfoTile({required this.label, required this.value});
+  const _InfoTile({required this.label, required this.value, this.onTap});
   final String label;
   final String value;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final Color ink = _inkFor(context);
     return ListTile(
       title: Text(label, style: TextStyle(color: ink, fontSize: 14, fontWeight: FontWeight.w500)),
-      trailing: value.isEmpty
+      // Chevron only when the row actually does something — a chevron on a
+      // dead row is a broken promise.
+      trailing: value.isEmpty && onTap != null
           ? Icon(Icons.chevron_right_rounded, color: ink.withValues(alpha: 0.3))
           : Text(value, style: TextStyle(color: ink.withValues(alpha: 0.45), fontSize: 13)),
+      onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
     );
   }

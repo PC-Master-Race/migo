@@ -36,6 +36,11 @@
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <!-- Network — REQUIRED in release builds. Debug builds inject INTERNET
+         automatically (Flutter tooling needs it for hot reload), so its
+         absence only shows up as "Failed host lookup" in a release APK. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Location permissions for geolocator -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

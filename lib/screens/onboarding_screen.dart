@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:hive_ce/hive.dart';
 
 import '../constants.dart';
+import '../services/location_service.dart';
 import '../theme/bravo_theme.dart';
 import '../widgets/avatar/avatar_painter.dart';
 import '../models/archetype_model.dart';
@@ -47,7 +48,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _skip() => _finish();
 
-  void _finish() {
+  Future<void> _finish() async {
+    // Request location permission HERE, while onboarding is still on screen
+    // and stable. It used to fire inside positionStreamProvider during the
+    // map's first frame — mid-navigation, where Android often drops the
+    // dialog — and the provider then cached "no permission" until the next
+    // app launch (the "restart to get the prompt" bug).
+    await LocationService().ensurePermissionGranted();
+    if (!mounted) return;
+    _completeAndGo();
+  }
+
+  void _completeAndGo() {
     final String name = _nameController.text.trim();
     if (name.isNotEmpty) {
       Hive.box<dynamic>(hiveBoxSettings).put('display_name', name);
@@ -88,11 +100,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     style: TextStyle(color: Colors.white54, fontSize: 14, fontWeight: FontWeight.w600)),
               ),
             ),
+          // Page dots live in the bottom strip, BELOW all page content — at
+          // +100 they floated over the Name page's Continue button (the
+          // "orange rice grain" covering the label). IgnorePointer so they
+          // can never block a tap either.
           Positioned(
-            bottom: MediaQuery.of(context).padding.bottom + 100,
+            bottom: MediaQuery.of(context).padding.bottom + 16,
             left: 0,
             right: 0,
-            child: Row(
+            child: IgnorePointer(
+              child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List<Widget>.generate(_pageCount, (int i) {
                 final bool active = i == _currentPage;
@@ -107,6 +124,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 );
               }),
+              ),
             ),
           ),
         ],

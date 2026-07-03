@@ -32,9 +32,13 @@ import '../providers/map_provider.dart';
 import '../providers/vector_tiles_provider.dart';
 import '../providers/routing_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/location_service.dart';
 import '../services/map_service.dart';
 import '../theme/bravo_theme.dart';
 import '../utils/map_utils.dart'; // formatUsDistance
+import '../models/archetype_model.dart';
+import '../providers/archetype_provider.dart';
+import '../widgets/avatar/avatar_painter.dart';
 import '../widgets/cartoon_avatar/user_location_marker.dart';
 import '../widgets/cartoon_avatar/smooth_user_marker_layer.dart';
 import '../widgets/hud/speed_hud.dart';
@@ -184,7 +188,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void _recenterOnUser() {
     setState(() => _isFollowingUser = true);
     final Position? latest = ref.read(positionStreamProvider).valueOrNull;
-    if (latest != null) _followPositionIfEnabled(latest);
+    if (latest != null) {
+      _followPositionIfEnabled(latest);
+      return;
+    }
+    // No fix at all — likely the first-run permission prompt was missed or
+    // denied, and the stream provider cached that forever. Re-ask and rebuild
+    // the provider so a grant takes effect WITHOUT an app restart.
+    Future<void>(() async {
+      final bool ok = await LocationService().ensurePermissionGranted();
+      if (ok && mounted) ref.invalidate(positionStreamProvider);
+    });
   }
 
   void _startPrefetchOnce(Position position) {
@@ -438,6 +452,58 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       }
     });
 
+    // THE HATCH: when the session count crosses the reveal threshold, the
+    // mystery egg cracks open — celebrate the newly earned archetype.
+    ref.listen<AsyncValue<ArchetypeProfile>>(archetypeNotifierProvider,
+        (AsyncValue<ArchetypeProfile>? prev, AsyncValue<ArchetypeProfile> next) {
+      final ArchetypeProfile? before = prev?.valueOrNull;
+      final ArchetypeProfile? after = next.valueOrNull;
+      if (before == null || after == null) return;
+      if (before.sessionCount < archetypeRevealSessionCount &&
+          after.sessionCount >= archetypeRevealSessionCount) {
+        showDialog<void>(
+          context: context,
+          builder: (BuildContext ctx) => AlertDialog(
+            backgroundColor: _panelColor(ctx),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                AvatarWidget(archetype: after.currentArchetype, size: 130),
+                const SizedBox(height: 16),
+                Text('Your avatar has hatched!',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: _panelInk(ctx),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                Text(
+                  'Your driving says it all — you\'re '
+                  '${after.currentArchetype.displayLabel}.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: _panelInk(ctx).withValues(alpha: 0.7),
+                      fontSize: 14,
+                      height: 1.4),
+                ),
+              ],
+            ),
+            actions: <Widget>[
+              Center(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: migoCoral),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Let\'s drive'),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    });
+
     // One-shot route notices ("Avoiding 7 camera zones", fallback warnings).
     ref.listen<String?>(routeNoticeProvider, (String? prev, String? next) {
       if (next == null) return;
@@ -471,8 +537,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       if (heading != null) {
         // Map rotation is opposite the travel bearing: bearing 90° (east)
         // needs the map rotated -90° so east points up.
-        _mapController.moveAndRotate(
-            next, _mapController.camera.zoom, -heading);
+        //
+        // LOOK-AHEAD: center the camera AHEAD of the car (~22% of screen
+        // height) so the avatar rides in the lower third and the map shows
+        // the road you're about to drive — not the road behind you that the
+        // banner is covering. (What Google/Waze do.)
+        final double zoom = _mapController.camera.zoom;
+        final double metersPerPixel = 156543.03392 *
+            math.cos(next.latitude * math.pi / 180) /
+            math.pow(2, zoom);
+        final double aheadMeters = metersPerPixel *
+            MediaQuery.of(context).size.height *
+            0.22;
+        final LatLng lookAhead =
+            const Distance().offset(next, aheadMeters, heading);
+        _mapController.moveAndRotate(lookAhead, zoom, -heading);
       } else {
         _mapController.move(next, _mapController.camera.zoom);
       }
@@ -544,13 +623,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           _buildAttributionBadge(zoomMode),
 
           // Search bar + inline results dropdown (single Positioned widget so
-          // results can never overlap the search pill).
-          _buildSearchBar(context, statusBarH),
+          // results can never overlap the search pill). HIDDEN while
+          // navigating — the maneuver banner takes its place at the very top
+          // (Google-style), so the two never stack and eat half the map.
+          if (!nowNavigating) _buildSearchBar(context, statusBarH),
 
-          // Maneuver banner — below the search bar when navigating.
+          // Maneuver banner — replaces the search bar at the top during
+          // navigation. Ending the route (End button) brings search back.
           if (navState != null)
             Positioned(
-              top: searchBottom + 8,
+              top: statusBarH + 8,
               left: 12,
               right: 12,
               child: _ManeuverBanner(navState: navState),
@@ -559,7 +641,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           // Off-route recalculating indicator.
           if (isOffRoute && route != null)
             Positioned(
-              top: navState != null ? searchBottom + 90 : searchBottom + 8,
+              top: navState != null ? statusBarH + 130 : searchBottom + 8,
               left: 0,
               right: 0,
               child: const _OffRouteBadge(),
@@ -621,7 +703,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
           // Hazard alert banners — below maneuver banner when navigating.
           Positioned(
-            top: navState != null ? searchBottom + 96 : searchBottom + 8,
+            top: navState != null ? statusBarH + 136 : searchBottom + 8,
             left: 0,
             right: 0,
             child: const HazardAlertStack(),
@@ -666,19 +748,36 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
         // Route polyline — only the REMAINING portion ahead of the user is
         // drawn; the part already driven is trimmed away so it doesn't linger
-        // behind the avatar. Bright green + thick for at-a-glance visibility.
+        // behind the avatar. NEON BLUE "light tube": soft outer glow + bright
+        // cyan body + hot near-white core. (Green/yellow/red stay reserved
+        // for future live-traffic coloring.)
         if (route != null && route.waypoints.isNotEmpty)
-          PolylineLayer(
-            polylines: <Polyline>[
-              Polyline(
-                points: _remainingRoute(route.waypoints, position),
-                strokeWidth: routePolylineWidthDp,
-                color: migoRouteGreen,
-                borderStrokeWidth: 1.5,
-                borderColor: Colors.white.withValues(alpha: 0.6),
-              ),
-            ],
-          ),
+          Builder(builder: (BuildContext _) {
+            final List<LatLng> remaining =
+                _remainingRoute(route.waypoints, position);
+            return PolylineLayer(
+              polylines: <Polyline>[
+                // Outer glow halo.
+                Polyline(
+                  points: remaining,
+                  strokeWidth: routePolylineWidthDp + 7,
+                  color: migoRouteNeon.withValues(alpha: 0.28),
+                ),
+                // Neon tube body.
+                Polyline(
+                  points: remaining,
+                  strokeWidth: routePolylineWidthDp,
+                  color: migoRouteNeon,
+                ),
+                // Hot core.
+                Polyline(
+                  points: remaining,
+                  strokeWidth: routePolylineWidthDp * 0.35,
+                  color: migoRouteNeonCore.withValues(alpha: 0.9),
+                ),
+              ],
+            );
+          }),
 
         // Destination marker.
         if (route != null)
@@ -1133,22 +1232,121 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         children: saved.map((SavedLocation loc) {
           return Padding(
             padding: const EdgeInsets.only(right: 8),
-            child: ActionChip(
-              avatar: Icon(loc.type.icon, size: 16, color: loc.type.color),
-              label: Text(
-                loc.label,
-                style: TextStyle(fontSize: 13, color: _panelInk(context)),
+            // Long-press a chip to rename or delete it (tap = navigate).
+            child: GestureDetector(
+              onLongPress: () => _showEditSavedLocationSheet(loc),
+              child: ActionChip(
+                avatar: Icon(loc.type.icon, size: 16, color: loc.type.color),
+                label: Text(
+                  loc.label,
+                  style: TextStyle(fontSize: 13, color: _panelInk(context)),
+                ),
+                backgroundColor: _panelColor(context),
+                elevation: 3,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20)),
+                onPressed: () => _selectSavedLocation(loc),
               ),
-              backgroundColor: _panelColor(context),
-              elevation: 3,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
-              onPressed: () => _selectSavedLocation(loc),
             ),
           );
         }).toList(),
       ),
     );
+  }
+
+  /// Long-press menu for a saved chip: rename or delete.
+  void _showEditSavedLocationSheet(SavedLocation loc) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _panelColor(context),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const SizedBox(height: 12),
+            ListTile(
+              leading: Icon(loc.type.icon, color: loc.type.color),
+              title: Text(loc.label,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: _panelInk(context))),
+              subtitle: Text(
+                loc.address,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: _panelInk(context).withValues(alpha: 0.6)),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.edit_rounded),
+              title: Text('Rename', style: TextStyle(color: _panelInk(context))),
+              onTap: () {
+                Navigator.of(sheetCtx).pop();
+                _showRenameSavedLocationDialog(loc);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded,
+                  color: Colors.redAccent),
+              title: const Text('Delete',
+                  style: TextStyle(color: Colors.redAccent)),
+              onTap: () {
+                Navigator.of(sheetCtx).pop();
+                ref.read(savedLocationsProvider.notifier).remove(loc.id);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Deleted "${loc.label}"')),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Rename dialog with the current label prefilled.
+  void _showRenameSavedLocationDialog(SavedLocation loc) {
+    final TextEditingController controller =
+        TextEditingController(text: loc.label);
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogCtx) => AlertDialog(
+        backgroundColor: _panelColor(context),
+        title: Text('Rename "${loc.label}"',
+            style: TextStyle(color: _panelInk(context), fontSize: 18)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 30,
+          style: TextStyle(color: _panelInk(context)),
+          decoration: const InputDecoration(hintText: 'New name'),
+          onSubmitted: (_) => _applyRename(dialogCtx, loc, controller.text),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => _applyRename(dialogCtx, loc, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _applyRename(BuildContext dialogCtx, SavedLocation loc, String name) {
+    Navigator.of(dialogCtx).pop();
+    if (name.trim().isEmpty || name.trim() == loc.label) return;
+    ref.read(savedLocationsProvider.notifier).rename(loc.id, name);
   }
 
   Widget _buildSearchResultsList() {
@@ -1159,7 +1357,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       elevation: 8,
       borderRadius: BorderRadius.circular(16),
       color: _panelColor(context),
-      child: results.when(
+      // Never let predictions swallow the map: the list gets at most ~40% of
+      // the screen and scrolls internally beyond that. (Result COUNT is
+      // already capped at nominatimMaxResults; this caps the pixels.)
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.4,
+        ),
+        child: results.when(
         loading: () => const Padding(
           padding: EdgeInsets.all(16),
           child: Center(
@@ -1192,9 +1397,30 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 const Divider(height: 1, indent: 16),
             itemBuilder: (BuildContext ctx, int i) {
               final GeocodingResult r = items[i];
+              // Distance from the user, so a far-away match is obvious at a
+              // glance BEFORE navigating to it.
+              final Position? me =
+                  ref.read(positionStreamProvider).valueOrNull;
+              final String distanceLabel = me == null
+                  ? ''
+                  : '${(const Distance().as(LengthUnit.Meter, LatLng(me.latitude, me.longitude), r.position) / metersPerMile).toStringAsFixed(1)} mi';
               return ListTile(
-                leading:
+                leading: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
                     const Icon(Icons.place_rounded, color: migoCoral),
+                    if (distanceLabel.isNotEmpty)
+                      Text(
+                        distanceLabel,
+                        style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                            color:
+                                _panelInk(context).withValues(alpha: 0.55)),
+                      ),
+                  ],
+                ),
                 title: Text(
                   r.shortName,
                   style: TextStyle(
@@ -1236,6 +1462,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             },
           );
         },
+        ),
       ),
     );
   }
@@ -1301,7 +1528,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       right: 0,
       child: Material(
         elevation: 12,
-        color: migoInk,
+        // True black + big bold white — same at-a-glance contrast system as
+        // the maneuver banner up top.
+        color: Colors.black,
         child: SafeArea(
           top: false,
           child: Padding(
@@ -1310,7 +1539,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                // Time + distance.
+                // Time + distance — ETA is the number drivers glance for.
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1320,15 +1549,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         timeLabel,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
                           height: 1.1,
                         ),
                       ),
                       Text(
                         distLabel,
                         style: const TextStyle(
-                            color: Colors.white60, fontSize: 13),
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                   ),
@@ -1342,10 +1574,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       _showDirectionsSheet(context, route, navState),
                 ),
                 const SizedBox(width: 4),
-                // Cancel route.
+                // End NAVIGATION (clears the route — not the app).
                 _RouteActionButton(
                   icon: Icons.close_rounded,
-                  label: 'Exit',
+                  label: 'End',
                   color: migoCoral,
                   onTap: _clearSearch,
                 ),
@@ -1628,12 +1860,14 @@ class _ManeuverBanner extends StatelessWidget {
     // US units (feet/miles), bigger and bolder for at-a-glance reading.
     final String distLabel = distM < 50 ? 'Now' : formatUsDistance(distM);
 
+    // HIGH-CONTRAST driving banner: true black, big bold white text —
+    // readable at arm's length, at speed, without 20-year-old eyes.
     return Material(
-      elevation: 6,
-      color: migoInk,
+      elevation: 8,
+      color: Colors.black,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: _panelBorder(context)),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
@@ -1643,47 +1877,69 @@ class _ManeuverBanner extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                _ManeuverIcon(type: step.type),
+                _ManeuverIcon(type: step.type, box: 52, icon: 34),
                 const SizedBox(width: 14),
                 Expanded(
-                  child: Text(
-                    step.instruction,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      height: 1.15,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  distLabel,
-                  style: const TextStyle(
-                    color: migoAmber,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      // Distance FIRST and biggest — it's the number the
+                      // driver's eyes hunt for.
+                      Text(
+                        distLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 30,
+                          fontWeight: FontWeight.w900,
+                          height: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        step.instruction,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                          height: 1.15,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            // Upcoming step preview — "Then ..." so the driver knows what's next.
+            // Upcoming step — SIMPLIFIED to an arrow + street name ("what am
+            // I doing after this turn?") instead of a full shrunken sentence.
             if (next != null && !navState.isLastStep) ...<Widget>[
+              const SizedBox(height: 10),
+              Container(height: 1, color: Colors.white.withValues(alpha: 0.15)),
               const SizedBox(height: 8),
               Row(
                 children: <Widget>[
-                  const Icon(Icons.subdirectory_arrow_right_rounded,
-                      color: Colors.white38, size: 18),
-                  const SizedBox(width: 8),
+                  // "Then in 500 ft" — the current step's leg length IS the
+                  // gap between this turn and the next one, so the driver
+                  // knows how soon the follow-up move comes.
+                  Text(
+                    'Then in ${formatUsDistance(step.distanceMiles * metersPerMile)}',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.75),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _ManeuverIcon(type: next.type, box: 30, icon: 20),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Then ${next.instruction}',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
+                      _shortStepLabel(next),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1697,7 +1953,10 @@ class _ManeuverBanner extends StatelessWidget {
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
                   'You have arrived',
-                  style: TextStyle(color: migoAmber, fontSize: 14),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700),
                 ),
               ),
           ],
@@ -1705,15 +1964,24 @@ class _ManeuverBanner extends StatelessWidget {
       ),
     );
   }
+
+  /// "Parkway" instead of "Turn right onto Parkway" — the arrow icon already
+  /// says the direction; the street name is all the driver needs to read.
+  String _shortStepLabel(ManeuverStep s) =>
+      s.streetNames.isNotEmpty ? s.streetNames.first : s.instruction;
 }
 
 class _ManeuverIcon extends StatelessWidget {
-  const _ManeuverIcon({required this.type});
+  const _ManeuverIcon({required this.type, this.box = 36, this.icon = 22});
   final ManeuverType type;
+
+  /// Container size / icon size (dp) — the nav banner uses a bigger pair.
+  final double box;
+  final double icon;
 
   @override
   Widget build(BuildContext context) {
-    final IconData icon = switch (type) {
+    final IconData iconData = switch (type) {
       ManeuverType.right => Icons.turn_right_rounded,
       ManeuverType.sharpRight => Icons.turn_sharp_right_rounded,
       ManeuverType.slightRight => Icons.turn_slight_right_rounded,
@@ -1733,13 +2001,15 @@ class _ManeuverIcon extends StatelessWidget {
     };
 
     return Container(
-      width: 36,
-      height: 36,
+      width: box,
+      height: box,
       decoration: BoxDecoration(
-        color: migoCoral.withValues(alpha: 0.15),
+        // Neon blue to match the route line — the banner's arrow and the
+        // glowing path on the map read as one system.
+        color: migoRouteNeon.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Icon(icon, color: migoCoral, size: 22),
+      child: Icon(iconData, color: migoRouteNeon, size: icon),
     );
   }
 }

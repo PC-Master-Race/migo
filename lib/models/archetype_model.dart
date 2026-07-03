@@ -8,6 +8,8 @@
 // Nine core archetypes, all drawn in chibi style — big round head, tiny body,
 // 2-3 signature accessories. Designed to appeal to any gender.
 
+import '../constants.dart' show creatorMode;
+
 /// Every core driving archetype.
 enum DrivingArchetype {
   /// Putters well under the limit, brakes early, avoids highways.
@@ -45,6 +47,21 @@ enum DrivingArchetype {
   /// Only back roads and shortcuts, never a main road or highway.
   /// Accessories: hoodie, sneaky grin, tiny rat ears.
   streetRat,
+}
+
+/// Human-readable archetype names for reveal moments, profile UI, etc.
+extension DrivingArchetypeLabel on DrivingArchetype {
+  String get displayLabel => switch (this) {
+        DrivingArchetype.grandpa => 'The Grandpa',
+        DrivingArchetype.rocket => 'The Rocket',
+        DrivingArchetype.ghost => 'The Ghost',
+        DrivingArchetype.scout => 'The Scout',
+        DrivingArchetype.phantom => 'The Phantom',
+        DrivingArchetype.zenMaster => 'The Zen Master',
+        DrivingArchetype.chaosAgent => 'The Chaos Agent',
+        DrivingArchetype.nightOwl => 'The Night Owl',
+        DrivingArchetype.streetRat => 'The Street Rat',
+      };
 }
 
 /// Rare / secret archetypes unlocked by specific hidden achievements.
@@ -160,6 +177,8 @@ class ArchetypeProfile {
     this.badges = const <AvatarBadge>[],
     this.sessionCount = 0,
     this.consecutiveDays = 0,
+    this.unlockedArchetypes = const <DrivingArchetype>[],
+    this.selectedArchetype,
     this.updatedAt,
   });
 
@@ -167,6 +186,22 @@ class ArchetypeProfile {
 
   /// The archetype currently displayed — the highest-scoring one.
   final DrivingArchetype currentArchetype;
+
+  /// Every archetype the user has EVER earned (was dominant after a session,
+  /// post-reveal). Once in the pool, always in the pool — they're trophies.
+  final List<DrivingArchetype> unlockedArchetypes;
+
+  /// User-chosen display override from the unlocked pool. Null = automatic
+  /// (show [currentArchetype], evolving with driving habits as always).
+  final DrivingArchetype? selectedArchetype;
+
+  /// What the avatar should actually show: the user's explicit pick if they
+  /// made one (and still own it), otherwise the earned current archetype.
+  /// Creator builds own everything (for testing every look).
+  DrivingArchetype get displayArchetype => (selectedArchetype != null &&
+          (creatorMode || unlockedArchetypes.contains(selectedArchetype)))
+      ? selectedArchetype!
+      : currentArchetype;
 
   /// Per-archetype EMA scores (0.0–1.0).
   final ArchetypeScores scores;
@@ -209,6 +244,14 @@ class ArchetypeProfile {
           .toList(),
       sessionCount: json['session_count'] as int? ?? 0,
       consecutiveDays: json['consecutive_days'] as int? ?? 0,
+      unlockedArchetypes:
+          (json['unlocked_archetypes'] as List<dynamic>? ?? <dynamic>[])
+              .map((dynamic n) => DrivingArchetype.values.byName(n as String))
+              .toList(),
+      selectedArchetype: json['selected_archetype'] == null
+          ? null
+          : DrivingArchetype.values
+              .byName(json['selected_archetype'] as String),
       updatedAt: json['updated_at'] == null
           ? null
           : DateTime.parse(json['updated_at'] as String),
@@ -224,6 +267,10 @@ class ArchetypeProfile {
         'badges': badges.map((AvatarBadge b) => b.name).toList(),
         'session_count': sessionCount,
         'consecutive_days': consecutiveDays,
+        'unlocked_archetypes':
+            unlockedArchetypes.map((DrivingArchetype a) => a.name).toList(),
+        // Always written (null clears a previous pick back to automatic).
+        'selected_archetype': selectedArchetype?.name,
       };
 
   ArchetypeProfile copyWith({
@@ -233,6 +280,9 @@ class ArchetypeProfile {
     List<AvatarBadge>? badges,
     int? sessionCount,
     int? consecutiveDays,
+    List<DrivingArchetype>? unlockedArchetypes,
+    DrivingArchetype? selectedArchetype,
+    bool clearSelectedArchetype = false,
     DateTime? updatedAt,
   }) =>
       ArchetypeProfile(
@@ -243,6 +293,10 @@ class ArchetypeProfile {
         badges: badges ?? this.badges,
         sessionCount: sessionCount ?? this.sessionCount,
         consecutiveDays: consecutiveDays ?? this.consecutiveDays,
+        unlockedArchetypes: unlockedArchetypes ?? this.unlockedArchetypes,
+        selectedArchetype: clearSelectedArchetype
+            ? null
+            : (selectedArchetype ?? this.selectedArchetype),
         updatedAt: updatedAt ?? this.updatedAt,
       );
 }

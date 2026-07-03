@@ -45,6 +45,15 @@ class SavedLocation {
   final LatLng position;
   final String address;
 
+  /// Copy with a replaced [label] (used by rename).
+  SavedLocation copyWith({String? label}) => SavedLocation(
+        id: id,
+        type: type,
+        label: label ?? this.label,
+        position: position,
+        address: address,
+      );
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'id': id,
         'type': type.index,

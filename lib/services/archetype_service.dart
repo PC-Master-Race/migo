@@ -24,6 +24,9 @@
 
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show debugPrint;
+
+import '../constants.dart';
 import '../models/archetype_model.dart';
 import 'supabase_service.dart';
 
@@ -89,18 +92,51 @@ class ArchetypeService {
       metrics: metrics,
     );
 
+    // 6. Grow the earned-archetype pool. Only after the reveal threshold —
+    // sessions 1-2 have too little signal for their dominant to count as
+    // "earned". Once in the pool, always in the pool (they're trophies).
+    final int newSessionCount = current.sessionCount + 1;
+    List<DrivingArchetype> unlocked = current.unlockedArchetypes;
+    if (newSessionCount >= archetypeRevealSessionCount &&
+        !unlocked.contains(dominant)) {
+      unlocked = <DrivingArchetype>[...unlocked, dominant];
+    }
+
     final ArchetypeProfile newProfile = current.copyWith(
       currentArchetype: dominant,
       scores: updated,
       rareArchetype: rare ?? current.rareArchetype,
       badges: badges,
-      sessionCount: current.sessionCount + 1,
+      sessionCount: newSessionCount,
       consecutiveDays: _updateStreak(current),
+      unlockedArchetypes: unlocked,
       updatedAt: DateTime.now(),
     );
 
     await _persist(newProfile);
     return newProfile;
+  }
+
+  /// Persists the user's display choice from their unlocked pool.
+  /// [choice] = null returns the avatar to automatic (current dominant).
+  Future<ArchetypeProfile> selectArchetype(
+    ArchetypeProfile current,
+    DrivingArchetype? choice,
+  ) async {
+    // Only owned archetypes are selectable — the UI enforces this too, but
+    // the service is the last line of defense. (Creator builds own it all.)
+    if (!creatorMode &&
+        choice != null &&
+        !current.unlockedArchetypes.contains(choice)) {
+      return current;
+    }
+    final ArchetypeProfile updated = current.copyWith(
+      selectedArchetype: choice,
+      clearSelectedArchetype: choice == null,
+      updatedAt: DateTime.now(),
+    );
+    await _persist(updated);
+    return updated;
   }
 
   // -------------------------------------------------------------------------
@@ -315,9 +351,16 @@ class ArchetypeService {
     // recalculateAfterSession still succeeds and the in-memory avatar updates.
     // The profile simply isn't saved between launches until a backend exists.
     if (!SupabaseService.isConnected) return;
-    await SupabaseService.client
-        .from('archetype_profiles')
-        .upsert(profile.toJson());
+    // A failed SAVE must never brick the avatar (e.g. a pending DB migration
+    // means unknown columns → PostgREST 400). The in-memory profile still
+    // works; persistence resumes once the backend accepts writes again.
+    try {
+      await SupabaseService.client
+          .from('archetype_profiles')
+          .upsert(profile.toJson());
+    } catch (e) {
+      debugPrint('[archetype] persist failed (pending migration?): $e');
+    }
   }
 
   // -------------------------------------------------------------------------

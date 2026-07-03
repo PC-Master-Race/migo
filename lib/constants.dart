@@ -247,6 +247,19 @@ const double tripMinDistanceMeters = 400.0;
 /// 3.5 m/s² ≈ 0.36 g — firm braking, not a gentle coast-down.
 const double hardBrakeMps2 = 3.5;
 
+/// Completed driving sessions before the mystery egg "hatches" and the user's
+/// earned archetype is revealed. Before this, the avatar is an egg with
+/// racing stripes — "Drive to discover your avatar," literally. 3 sessions
+/// gives the EMA scores enough signal that the reveal isn't a coin flip.
+const int archetypeRevealSessionCount = 3;
+
+/// CREATOR MODE — Ruben's personal easter egg: Tux the Linux penguin, in a
+/// fedora, driving a go-kart. Gated on a dart-define (CREATOR_MODE in
+/// env.json, which is git-ignored), so only builds from the product owner's
+/// machine ever have it. Picking an archetype in the avatar picker overrides
+/// it; "Automatic" brings Tux back.
+const bool creatorMode = bool.fromEnvironment('CREATOR_MODE');
+
 /// Acceleration (m/s²) that counts as a "hard acceleration".
 /// 3.0 m/s² ≈ 0.31 g — a noticeably aggressive launch.
 const double hardAccelMps2 = 3.0;
@@ -332,8 +345,22 @@ const int nominatimMaxResults = 5;
 // Search near the user first; only widen to the whole US if nothing's found,
 // so results are never worldwide. Tunable — can later be made user/region based.
 
-/// Radius (miles) for the first, LOCAL geocoding pass around the user.
-const double localGeocodeRadiusMiles = 100.0;
+// Search widens in tiers as the query gets more specific — most navigation is
+// nearby, so nearby must win ties (the "hundreds of miles away" fix):
+//   NEAR (15 mi) → REGION (50 mi) → WIDE (continental US, gated).
+
+/// Radius (miles) of the first, NEAR geocoding pass — everyday trips.
+const double geocodeNearRadiusMiles = 15.0;
+
+/// Radius (miles) of the second, REGION pass — day-trip range.
+const double geocodeRegionRadiusMiles = 50.0;
+
+/// The WIDE (US) pass only runs when the query is specific enough that a
+/// distant match is plausibly intentional: at least this many characters...
+const int geocodeWideMinQueryChars = 10;
+
+/// ...or at least this many words (e.g. "1515 verness st" = 3 tokens).
+const int geocodeWideMinTokens = 3;
 
 /// Approx. degrees of latitude per mile (1° latitude ≈ 69 miles). Used to size
 /// the local bounding box.
@@ -359,16 +386,11 @@ const int maneuverAlertDistanceMeters = 200;
 // remind the driver as they approach, using thresholds that depend on leg
 // length so highway exits get plenty of warning.
 
-/// Leg length (miles) at/above which a leg counts as "long" and uses fixed
-/// far/near reminders instead of a percentage.
-const double navLongLegMiles = 10.0;
-
-/// For long legs: first reminder this many miles from the maneuver.
-const double navLongLegFarAlertMiles = 5.0;
-
-/// For short legs (<[navLongLegMiles]): first reminder at this fraction of the
-/// leg remaining (e.g. 0.4 = when 40% of the leg is left).
-const double navShortLegRemainingFraction = 0.4;
+/// Reminder fires when this fraction of the leg remains (0.25 = 25% left —
+/// per drive-test feedback: "remind me when I'm 20-30% away from the turn").
+/// Applies to EVERY leg; the lead-in covers the start, the near alert covers
+/// the end, and this covers the long quiet middle.
+const double navTurnReminderFraction = 0.25;
 
 /// Final "you're almost there" reminder this many miles from the maneuver
 /// (applies to every leg).
@@ -377,6 +399,12 @@ const double navNearAlertMiles = 1.0;
 /// Meters from a maneuver point at which the app advances to the next step.
 /// 25 m ≈ passing through the intersection.
 const double stepAdvanceRadiusMeters = 25.0;
+
+/// When the leg AFTER the announced maneuver is shorter than this (meters),
+/// voice guidance chains the follow-up into the same sentence — "turn right
+/// onto Parkway, THEN turn left onto Main" — so back-to-back turns are never
+/// a last-second surprise. ~300 m ≈ 1000 ft.
+const double navChainManeuverMeters = 300.0;
 
 /// Stroke width (dp) for the route polyline drawn on the map. Thick + bright
 /// green (see migoRouteGreen) so it's easy to follow at a glance while driving.

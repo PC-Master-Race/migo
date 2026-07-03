@@ -6,12 +6,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../constants.dart';
 import '../../models/archetype_model.dart';
 import '../../models/bravo_model.dart';
 import '../../providers/archetype_provider.dart';
 import '../../providers/bravo_provider.dart';
 import '../../theme/bravo_theme.dart';
 import '../avatar/avatar_painter.dart';
+import '../avatar/avatar_picker_sheet.dart';
+import '../avatar/mystery_egg.dart';
 
 // ---------------------------------------------------------------------------
 // UserLocationMarker
@@ -40,6 +43,39 @@ class UserLocationMarker extends ConsumerWidget {
           loading: () => _fallback(size),
           error: (_, __) => _fallback(size),
           data: (ArchetypeProfile profile) {
+            // CREATOR EASTER EGG: Tux in a fedora in a go-kart. Only exists
+            // in builds with CREATOR_MODE in env.json. Explicitly picking an
+            // archetype from the pool overrides it; "Automatic" = Tux.
+            if (creatorMode && profile.selectedArchetype == null) {
+              return GestureDetector(
+                onTap: () => showAvatarPickerSheet(ctx),
+                child: AvatarWidget(
+                  archetype: profile.currentArchetype,
+                  size: size,
+                  tux: true,
+                ),
+              );
+            }
+
+            // Pre-reveal: the avatar hasn't HATCHED yet. Until enough
+            // sessions exist to earn a real archetype, show the mystery egg —
+            // "Drive to discover your avatar," literally. (Also keeps Zen
+            // Master earned-only instead of being the freebie default.)
+            if (profile.rareArchetype == null &&
+                profile.sessionCount < archetypeRevealSessionCount) {
+              return GestureDetector(
+                onTap: () => ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text('Still hatching — '
+                        '${archetypeRevealSessionCount - profile.sessionCount}'
+                        ' more drive${archetypeRevealSessionCount - profile.sessionCount == 1 ? '' : 's'} to reveal your avatar!'),
+                    duration: const Duration(seconds: 3),
+                  ),
+                ),
+                child: MysteryEggWidget(size: size),
+              );
+            }
+
             final List<UnlockedCosmetic> cosmetics =
                 cosmeticsAsync.valueOrNull ?? <UnlockedCosmetic>[];
             final UnlockedCosmetic? equipped = cosmetics
@@ -47,13 +83,19 @@ class UserLocationMarker extends ConsumerWidget {
                 .toList()
                 .firstOrNull;
 
-            return AvatarWidget(
-              archetype: profile.currentArchetype,
-              // When a rare archetype is unlocked it overrides the look.
-              rareArchetype: profile.rareArchetype,
-              size: size,
-              // Show the unlockable the user has equipped (null = none).
-              equippedCosmetic: equipped?.cosmeticId,
+            // Tap your own avatar to open the earned-archetype picker.
+            return GestureDetector(
+              onTap: () => showAvatarPickerSheet(ctx),
+              child: AvatarWidget(
+                // Respect the user's pick from their unlocked pool;
+                // falls back to the earned dominant archetype.
+                archetype: profile.displayArchetype,
+                // When a rare archetype is unlocked it overrides the look.
+                rareArchetype: profile.rareArchetype,
+                size: size,
+                // Show the unlockable the user has equipped (null = none).
+                equippedCosmetic: equipped?.cosmeticId,
+              ),
             );
           },
         );

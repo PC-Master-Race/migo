@@ -113,7 +113,7 @@ class AlprAvoidanceNotifier extends ToggleNotifier {
 }
 
 // ---------------------------------------------------------------------------
-// TTS (voice guidance) — defaults OFF
+// TTS (voice guidance) — defaults ON (core nav feature, not privacy-sensitive)
 // ---------------------------------------------------------------------------
 
 final StateNotifierProvider<TtsEnabledNotifier, bool> ttsEnabledProvider =
@@ -121,7 +121,7 @@ final StateNotifierProvider<TtsEnabledNotifier, bool> ttsEnabledProvider =
 
 class TtsEnabledNotifier extends ToggleNotifier {
   TtsEnabledNotifier()
-      : super(_box.get(settingsKeyTtsEnabled, defaultValue: false) as bool);
+      : super(_box.get(settingsKeyTtsEnabled, defaultValue: true) as bool);
 
   @override
   Future<void> toggle() async {

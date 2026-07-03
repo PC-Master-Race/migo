@@ -50,7 +50,17 @@ const Color migoPlum = Color(0xFF6D4C7D);
 
 /// Active route line — bright lime green for high visibility on the map, the
 /// convention drivers expect from navigation tools.
+/// RETIRED for the route line (green/yellow/red are reserved for future
+/// live-traffic coloring); kept for other "good/positive" UI accents.
 const Color migoRouteGreen = Color(0xFF2BE84A);
+
+/// Neon "Tron" blue for the active route line — pops against both the
+/// Google-night dark map and the cream light map, and never collides with
+/// traffic colors.
+const Color migoRouteNeon = Color(0xFF00E5FF);
+
+/// The hot inner core of the neon route tube (near-white cyan).
+const Color migoRouteNeonCore = Color(0xFFB2F7FF);
 
 // --- DARK PALETTE (night driving) ---
 // Warm-leaning darks, not cold black — keeps the friendly identity at night.

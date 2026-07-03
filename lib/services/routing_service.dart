@@ -72,6 +72,25 @@ class RoutingService {
     required LatLng destination,
     required RoutePreferences preferences,
     List<LatLng> alprLocations = const <LatLng>[],
+  }) async =>
+      (await calculateRoutes(
+        origin: origin,
+        destination: destination,
+        preferences: preferences,
+        alprLocations: alprLocations,
+      ))
+          .first;
+
+  /// Like [calculateRoute] but can request [alternates] extra routes in the
+  /// SAME server call. Camera avoidance scores the candidates locally against
+  /// the on-device camera DB and picks the cleanest — usually avoiding
+  /// cameras with NO exclusion polygons (and no server limits) at all.
+  Future<List<BravoRoute>> calculateRoutes({
+    required LatLng origin,
+    required LatLng destination,
+    required RoutePreferences preferences,
+    List<LatLng> alprLocations = const <LatLng>[],
+    int alternates = 0,
   }) async {
     final Map<String, dynamic> body = _buildRequestBody(
       origin: origin,
@@ -79,6 +98,7 @@ class RoutingService {
       preferences: preferences,
       alprLocations: alprLocations,
     );
+    if (alternates > 0) body['alternates'] = alternates;
 
     final int polygonCount =
         (body['exclude_polygons'] as List<dynamic>?)?.length ?? 0;
@@ -101,11 +121,21 @@ class RoutingService {
       throw RoutingException(_conciseValhallaError(response));
     }
 
-    return _parseResponse(
-      jsonDecode(response.body) as Map<String, dynamic>,
-      destination: destination,
-      preferences: preferences,
-    );
+    final Map<String, dynamic> json =
+        jsonDecode(response.body) as Map<String, dynamic>;
+    final List<BravoRoute> routes = <BravoRoute>[
+      _parseResponse(json, destination: destination, preferences: preferences),
+    ];
+    // Valhalla returns extra candidates as [{trip: {...}}, ...].
+    for (final dynamic alt in json['alternates'] as List<dynamic>? ?? <dynamic>[]) {
+      try {
+        routes.add(_parseResponse(alt as Map<String, dynamic>,
+            destination: destination, preferences: preferences));
+      } catch (e) {
+        debugPrint('[routing] skipping malformed alternate: $e');
+      }
+    }
+    return routes;
   }
 
   /// POSTs the route request, retrying up to [valhallaMaxRetries] times on
@@ -235,10 +265,42 @@ class RoutingService {
 
   Map<String, dynamic> _buildCostingOptions(RoutePreferences prefs) {
     // use_highways and use_tolls are [0.0, 1.0] penalty scales.
+    //
+    // AUDIT FIX (2026-07-02): the old logic had two real bugs —
+    //  1. Eco and Fewest-Stops were NO-OPS: they raised use_highways via
+    //     max(x, 0.5/0.8) against a baseline that was ALREADY 1.0, so all
+    //     three non-shortest modes produced identical requests.
+    //  2. When they did act (avoid-freeways set), max() OVERRODE the user's
+    //     explicit avoidance — an optimization hint beat a hard preference.
+    // Order now: optimization sets its knobs FIRST, then explicit avoidances
+    // clamp LAST and always win.
     double useHighways = 1.0;
     double useTolls = 1.0;
     bool shortest = false;
+    double? topSpeedKph;
+    double? maneuverPenaltySec;
 
+    switch (prefs.optimizeFor) {
+      case RouteOptimization.fastest:
+        break; // Valhalla's default objective IS travel time.
+      case RouteOptimization.shortest:
+        // NOTE: Valhalla's shortest flag switches to pure distance costing —
+        // other knobs (tolls/highways) have reduced influence in this mode.
+        shortest = true;
+      case RouteOptimization.mostFuelEfficient:
+        // Approximation: cap cruising speed (drag dominates fuel burn at
+        // high speed) and slightly soften the highway preference so steady
+        // moderate roads can win over pedal-down freeway legs.
+        topSpeedKph = 105; // ≈ 65 mph
+        useHighways = 0.8;
+      case RouteOptimization.fewestStops:
+        // The real knob: maneuver_penalty (default 5 s) makes every turn /
+        // junction transition expensive, so routing prefers straight-through
+        // roads with fewer stops. Highways stay attractive by default.
+        maneuverPenaltySec = 30;
+    }
+
+    // Explicit avoidances LAST — they clamp and always win.
     if (prefs.avoidFreeways) useHighways = 0.0;
     if (prefs.avoidPopularRoutes) {
       // "Avoid popular routes" maps to strong surface-street preference.
@@ -247,21 +309,12 @@ class RoutingService {
     }
     if (prefs.avoidTolls) useTolls = 0.0;
 
-    if (prefs.optimizeFor == RouteOptimization.shortest) {
-      shortest = true;
-    } else if (prefs.optimizeFor == RouteOptimization.fewestStops) {
-      // Highways have fewer signals — slightly prefer them when minimizing stops.
-      useHighways = math.max(useHighways, 0.8);
-    } else if (prefs.optimizeFor == RouteOptimization.mostFuelEfficient) {
-      // Steady highway speeds are more efficient than stop-and-go arterials.
-      // Moderate preference — doesn't override explicit avoidance settings.
-      useHighways = math.max(useHighways, 0.5);
-    }
-
     return <String, dynamic>{
       'use_highways': useHighways,
       'use_tolls': useTolls,
       'shortest': shortest,
+      if (topSpeedKph != null) 'top_speed': topSpeedKph,
+      if (maneuverPenaltySec != null) 'maneuver_penalty': maneuverPenaltySec,
     };
   }
 
@@ -410,6 +463,30 @@ class RoutingException implements Exception {
 // These helpers spend that budget on the cameras that actually matter: the
 // ones near the candidate route, nearest-first, with overlapping cameras
 // merged into one circle.
+
+/// Counts cameras within [alprAvoidCorridorMeters] of [routePolyline] —
+/// the LOCAL scoring that lets us compare route candidates against the
+/// on-device camera DB without telling the routing server anything.
+int countCamerasNearRoute(List<LatLng> cameras, List<LatLng> routePolyline) {
+  if (cameras.isEmpty || routePolyline.length < 2) return 0;
+  // Same decimation trick as selectAlprExclusions — keep the scan cheap.
+  const int maxPolyPoints = 800;
+  List<LatLng> poly = routePolyline;
+  if (poly.length > maxPolyPoints) {
+    final int step = (poly.length / maxPolyPoints).ceil();
+    poly = <LatLng>[
+      for (int i = 0; i < poly.length; i += step) poly[i],
+      poly.last,
+    ];
+  }
+  int count = 0;
+  for (final LatLng cam in cameras) {
+    if (distanceToPolylineMeters(cam, poly) <= alprAvoidCorridorMeters) {
+      count++;
+    }
+  }
+  return count;
+}
 
 /// Perimeter (meters) of one ALPR exclusion N-gon: 2·n·r·sin(π/n).
 final double alprExclusionPerimeterMeters = 2 *

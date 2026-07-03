@@ -32,10 +32,13 @@ import '../models/route_model.dart';
 class GeocodingService {
   /// Searches for [query], biased toward [userPosition].
   ///
-  /// LOCAL-FIRST strategy:
-  ///  1. Search within [localGeocodeRadiusMiles] of the user. Only if that
-  ///     finds nothing do we widen.
-  ///  2. Widen to the continental US (never worldwide).
+  /// TIERED-DISTANCE strategy (people mostly navigate nearby):
+  ///  1. NEAR — within [geocodeNearRadiusMiles]. Any hit wins outright.
+  ///  2. REGION — within [geocodeRegionRadiusMiles].
+  ///  3. WIDE — continental US, but ONLY when the query is specific enough
+  ///     ([geocodeWideMinQueryChars] chars or [geocodeWideMinTokens] words)
+  ///     that a distant match is plausibly what the user meant. A half-typed
+  ///     query never surfaces something hundreds of miles away.
   ///
   /// Within each pass: street addresses (query starts with a house number) go
   /// to Nominatim first (it returns the numbered address); everything else goes
@@ -86,15 +89,59 @@ class GeocodingService {
       return results;
     }
 
-    // --- Pass 1: LOCAL — within localGeocodeRadiusMiles of the user. ---
-    if (userPosition != null) {
-      final List<GeocodingResult> local =
-          await runPass(_bboxAround(userPosition, localGeocodeRadiusMiles));
-      if (local.isNotEmpty) return local;
+    // NEAR matches rank first; REGION matches fill the remaining slots BELOW
+    // them (closer stays on top until it stops matching — then the next tier
+    // takes over). WIDE only joins for specific-enough queries.
+    final List<GeocodingResult> merged = <GeocodingResult>[];
+    void addNew(List<GeocodingResult> batch) {
+      for (final GeocodingResult r in batch) {
+        if (merged.length >= nominatimMaxResults) return;
+        final bool duplicate = merged.any((GeocodingResult m) =>
+            m.displayName == r.displayName ||
+            const Distance().as(LengthUnit.Meter, m.position, r.position) <
+                50);
+        if (!duplicate) merged.add(r);
+      }
     }
 
-    // --- Pass 2: WIDE — continental US (never worldwide). ---
-    return runPass(const _GeoBBox.unitedStates());
+    // Hard client-side tier enforcement: the bbox params SHOULD constrain the
+    // geocoders, but we've seen distant hits leak through — so each tier's
+    // results are also distance-filtered on our side. Trust, but verify.
+    List<GeocodingResult> withinMiles(
+        List<GeocodingResult> results, double radiusMiles) {
+      if (userPosition == null) return results;
+      const Distance d = Distance();
+      return results
+          .where((GeocodingResult r) =>
+              d.as(LengthUnit.Meter, userPosition, r.position) <=
+              radiusMiles * metersPerMile)
+          .toList();
+    }
+
+    if (userPosition != null) {
+      // --- Pass 1: NEAR — everyday-trip radius. ---
+      addNew(withinMiles(
+          await runPass(_bboxAround(userPosition, geocodeNearRadiusMiles)),
+          geocodeNearRadiusMiles));
+
+      // --- Pass 2: REGION — fill remaining slots from day-trip radius. ---
+      if (merged.length < nominatimMaxResults) {
+        addNew(withinMiles(
+            await runPass(_bboxAround(userPosition, geocodeRegionRadiusMiles)),
+            geocodeRegionRadiusMiles));
+      }
+    }
+
+    // --- Pass 3: WIDE — continental US. ONLY for specific-enough queries,
+    // with or without a GPS anchor: a half-typed query must never surface
+    // something hundreds of miles away. (No results is better guidance —
+    // it says "keep typing" — than a confident wrong city.)
+    final bool specificEnough = q.length >= geocodeWideMinQueryChars ||
+        q.split(RegExp(r'\s+')).length >= geocodeWideMinTokens;
+    if (merged.length < nominatimMaxResults && specificEnough) {
+      addNew(await runPass(const _GeoBBox.unitedStates()));
+    }
+    return merged;
   }
 
   /// A ~[radiusMiles] bounding box centred on [center]. Longitude degrees are

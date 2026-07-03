@@ -38,6 +38,7 @@ class _ArchetypeConfig {
     required this.accessoryA,
     required this.accessoryB,
     this.auraColor,
+    this.vehicle = _VehicleType.car,
   });
 
   final Color carColor;
@@ -47,6 +48,25 @@ class _ArchetypeConfig {
   final _AccessoryType accessoryA;
   final _AccessoryType accessoryB;
   final Color? auraColor;
+
+  /// What the chibi rides. Default is the classic car; signature archetypes
+  /// get signature rides (Zen floats on a cloud, Rocket rides a rocket, ...).
+  final _VehicleType vehicle;
+}
+
+/// Per-archetype rides. Same canvas slot as the car (head pokes out the top)
+/// so every vehicle drops into the existing layout without layout changes.
+enum _VehicleType {
+  car,
+  cloud,
+  rocketShip,
+  ufo,
+  spectralFloat,
+  vintageSedan,
+  crescentMoon,
+  shoppingCart,
+  skateboard,
+  jeep,
 }
 
 enum _EyeStyle { normal, sleepy, wide, squint, closed, hollow, happy }
@@ -72,12 +92,13 @@ enum _AccessoryType {
 const Map<DrivingArchetype, _ArchetypeConfig> _kConfigs =
     <DrivingArchetype, _ArchetypeConfig>{
   DrivingArchetype.grandpa: _ArchetypeConfig(
-    carColor: Color(0xFF90A4AE), // steel blue-grey
+    carColor: Color(0xFF9FB4BE), // gentle powder blue-grey
     headColor: Color(0xFFFFCC99),
     eyeStyle: _EyeStyle.squint,
     mouthStyle: _MouthStyle.neutral,
     accessoryA: _AccessoryType.readingGlasses,
     accessoryB: _AccessoryType.none,
+    vehicle: _VehicleType.vintageSedan, // whitewalls + eternal blinker
   ),
   DrivingArchetype.rocket: _ArchetypeConfig(
     carColor: Color(0xFFE53935), // racing red
@@ -85,17 +106,19 @@ const Map<DrivingArchetype, _ArchetypeConfig> _kConfigs =
     eyeStyle: _EyeStyle.wide,
     mouthStyle: _MouthStyle.grin,
     accessoryA: _AccessoryType.racingGoggles,
-    accessoryB: _AccessoryType.spoiler,
+    accessoryB: _AccessoryType.none,
     auraColor: Color(0x33FF5722),
+    vehicle: _VehicleType.rocketShip, // rides an actual rocket — speed IS the brand
   ),
   DrivingArchetype.ghost: _ArchetypeConfig(
-    carColor: Color(0xFF4A148C), // deep purple
+    carColor: Color(0xFFD9CDEA), // pale spectral lavender
     headColor: Color(0xFFE1E1E1), // pale/ghostly
     eyeStyle: _EyeStyle.hollow,
     mouthStyle: _MouthStyle.ooo,
     accessoryA: _AccessoryType.none,
     accessoryB: _AccessoryType.none,
     auraColor: Color(0x44AB47BC),
+    vehicle: _VehicleType.spectralFloat, // no car — ghosts don't need one
   ),
   DrivingArchetype.scout: _ArchetypeConfig(
     carColor: Color(0xFF43A047), // forest green
@@ -104,50 +127,57 @@ const Map<DrivingArchetype, _ArchetypeConfig> _kConfigs =
     mouthStyle: _MouthStyle.smile,
     accessoryA: _AccessoryType.explorerHat,
     accessoryB: _AccessoryType.none,
+    vehicle: _VehicleType.jeep, // open-top, spare tire, expedition flag
   ),
   DrivingArchetype.phantom: _ArchetypeConfig(
-    carColor: Color(0xFF263238), // near black
+    carColor: Color(0xFF37474F), // gunmetal saucer
     headColor: Color(0xFFBDBDBD),
     eyeStyle: _EyeStyle.squint,
     mouthStyle: _MouthStyle.smirk,
     accessoryA: _AccessoryType.fedora,
     accessoryB: _AccessoryType.none,
     auraColor: Color(0x33546E7A),
+    // The camera-dodger flies a UFO — you can't read the plates on a saucer.
+    vehicle: _VehicleType.ufo,
   ),
   DrivingArchetype.zenMaster: _ArchetypeConfig(
-    carColor: Color(0xFF80DEEA), // soft teal
+    carColor: Color(0xFFECEFF1), // cloud white with the softest grey
     headColor: Color(0xFFFFCC99),
     eyeStyle: _EyeStyle.closed,
     mouthStyle: _MouthStyle.smile,
     accessoryA: _AccessoryType.zenHalo,
     accessoryB: _AccessoryType.none,
     auraColor: Color(0x2200BCD4),
+    vehicle: _VehicleType.cloud, // floats — perfectly smooth driving, literally
   ),
   DrivingArchetype.chaosAgent: _ArchetypeConfig(
-    carColor: Color(0xFFFF6F00), // amber orange
+    carColor: Color(0xFFB0BEC5), // chrome cart
     headColor: Color(0xFFFFB74D),
     eyeStyle: _EyeStyle.wide,
     mouthStyle: _MouthStyle.ooo,
     accessoryA: _AccessoryType.coffeeX3,
     accessoryB: _AccessoryType.none,
     auraColor: Color(0x33FF6F00),
+    vehicle: _VehicleType.shoppingCart, // 45 mph of pure entropy
   ),
   DrivingArchetype.nightOwl: _ArchetypeConfig(
-    carColor: Color(0xFF1A237E), // midnight blue
+    carColor: Color(0xFFFFE082), // moonlight gold
     headColor: Color(0xFFFFCC99),
     eyeStyle: _EyeStyle.sleepy,
     mouthStyle: _MouthStyle.neutral,
     accessoryA: _AccessoryType.nightCap,
     accessoryB: _AccessoryType.none,
     auraColor: Color(0x221A237E),
+    vehicle: _VehicleType.crescentMoon, // hammocked in the moon, stars out
   ),
   DrivingArchetype.streetRat: _ArchetypeConfig(
-    carColor: Color(0xFF757575), // urban grey
+    carColor: Color(0xFF8D6E63), // scuffed deck brown
     headColor: Color(0xFFFFCC99),
     eyeStyle: _EyeStyle.squint,
     mouthStyle: _MouthStyle.smirk,
     accessoryA: _AccessoryType.hoodie,
     accessoryB: _AccessoryType.none,
+    vehicle: _VehicleType.skateboard, // back streets, fat wheels
   ),
 };
 
@@ -212,7 +242,12 @@ class AvatarPainter extends CustomPainter {
     this.equippedCosmetic,
     this.bob = 0.0,
     this.showAura = true,
+    this.tux = false,
   });
+
+  /// CREATOR EASTER EGG: Tux the Linux penguin, fedora on, in a go-kart.
+  /// Overrides everything else. See [creatorMode] in constants.dart.
+  final bool tux;
 
   final DrivingArchetype archetype;
 
@@ -231,6 +266,12 @@ class AvatarPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Creator easter egg takes over everything: fedora'd Tux in a kart.
+    if (tux) {
+      _paintTuxKart(canvas, size);
+      return;
+    }
+
     // A rare archetype, when unlocked, takes over the whole look.
     final _ArchetypeConfig cfg = rareArchetype != null
         ? (_kRareConfigs[rareArchetype] ??
@@ -249,9 +290,31 @@ class AvatarPainter extends CustomPainter {
       _drawAura(canvas, cx, h * 0.55, w * 0.52, cfg.auraColor!);
     }
 
-    // ── 2. Car body ───────────────────────────────────────────────────────
+    // ── 2. Vehicle (car / cloud / rocket — the archetype's signature ride) ─
     final Color carColor = carColorOverride ?? cfg.carColor;
-    _drawCar(canvas, size, carColor, cfg.accessoryB == _AccessoryType.spoiler);
+    switch (cfg.vehicle) {
+      case _VehicleType.car:
+        _drawCar(
+            canvas, size, carColor, cfg.accessoryB == _AccessoryType.spoiler);
+      case _VehicleType.cloud:
+        _drawCloud(canvas, size, carColor);
+      case _VehicleType.rocketShip:
+        _drawRocketShip(canvas, size, carColor);
+      case _VehicleType.ufo:
+        _drawUfo(canvas, size, carColor);
+      case _VehicleType.spectralFloat:
+        _drawSpectralFloat(canvas, size, carColor);
+      case _VehicleType.vintageSedan:
+        _drawVintageSedan(canvas, size, carColor);
+      case _VehicleType.crescentMoon:
+        _drawCrescentMoon(canvas, size, carColor);
+      case _VehicleType.shoppingCart:
+        _drawShoppingCart(canvas, size, carColor);
+      case _VehicleType.skateboard:
+        _drawSkateboard(canvas, size, carColor);
+      case _VehicleType.jeep:
+        _drawJeep(canvas, size, carColor);
+    }
 
     // ── 3. Head ───────────────────────────────────────────────────────────
     final double headRadius = w * 0.36; // ~23px on 64px canvas
@@ -401,6 +464,745 @@ class AvatarPainter extends CustomPainter {
         Paint()..color = const Color(0xFFB71C1C),
       );
     }
+  }
+
+  // ── Cloud (Zen Master's ride) ────────────────────────────────────────────
+  // Perfectly smooth driving = floating on a cloud. Fluffy cumulus puffs in
+  // the car's canvas slot, a soft under-mist instead of wheels, and two tiny
+  // sparkles for serenity.
+
+  void _drawCloud(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final double top = h * 0.58;
+    final double bottom = h * 0.86;
+    final double midY = (top + bottom) / 2;
+
+    // Under-mist (takes the place of a ground shadow — clouds don't clunk).
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: Offset(w * 0.5, h * 0.92), width: w * 0.6, height: h * 0.05),
+      Paint()
+        ..color = color.withValues(alpha: 0.45)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+
+    final Paint puff = Paint()..color = color;
+    final Paint puffShade = Paint()
+      ..color = Color.lerp(color, const Color(0xFF90A4AE), 0.35)!;
+
+    // Flat-ish base with a soft shaded underside.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.10, midY, w * 0.90, bottom),
+        Radius.circular(h * 0.07),
+      ),
+      puffShade,
+    );
+
+    // Fluffy top puffs (the head rises out from between them).
+    canvas.drawCircle(Offset(w * 0.22, midY), w * 0.15, puff);
+    canvas.drawCircle(Offset(w * 0.42, top + h * 0.02), w * 0.19, puff);
+    canvas.drawCircle(Offset(w * 0.66, midY - h * 0.02), w * 0.16, puff);
+    canvas.drawCircle(Offset(w * 0.84, midY + h * 0.02), w * 0.12, puff);
+    // Fill the seams.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.12, midY - h * 0.015, w * 0.88, bottom - h * 0.02),
+        Radius.circular(h * 0.06),
+      ),
+      puff,
+    );
+
+    // Serenity sparkles.
+    final Paint sparkle = Paint()..color = const Color(0xFFFFF9C4);
+    canvas.drawCircle(Offset(w * 0.13, top - h * 0.015), 1.6, sparkle);
+    canvas.drawCircle(Offset(w * 0.88, top + h * 0.01), 1.2, sparkle);
+  }
+
+  // ── Rocket ship (The Rocket's ride) ──────────────────────────────────────
+  // Speed IS the brand: a sideways rocket with a nose cone, tail fins, a
+  // porthole, exhaust flame, and speed lines trailing behind.
+
+  void _drawRocketShip(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final double top = h * 0.58;
+    final double bottom = h * 0.86;
+    final double midY = (top + bottom) / 2;
+    final double bodyLeft = w * 0.14;
+    final double bodyRight = w * 0.78;
+
+    // Exhaust flame (behind/left — the rocket "flies" right).
+    final Path flame = Path()
+      ..moveTo(bodyLeft, midY - h * 0.055)
+      ..lineTo(w * 0.02, midY)
+      ..lineTo(bodyLeft, midY + h * 0.055)
+      ..close();
+    canvas.drawPath(flame, Paint()..color = const Color(0xFFFFA000));
+    final Path flameInner = Path()
+      ..moveTo(bodyLeft, midY - h * 0.03)
+      ..lineTo(w * 0.07, midY)
+      ..lineTo(bodyLeft, midY + h * 0.03)
+      ..close();
+    canvas.drawPath(flameInner, Paint()..color = const Color(0xFFFFF176));
+
+    // Speed lines.
+    final Paint lines = Paint()
+      ..color = Colors.white.withValues(alpha: 0.55)
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+        Offset(w * 0.02, top + h * 0.01), Offset(w * 0.13, top + h * 0.01), lines);
+    canvas.drawLine(
+        Offset(w * 0.00, bottom - h * 0.015), Offset(w * 0.10, bottom - h * 0.015), lines);
+
+    // Tail fins (top + bottom, at the back).
+    final Paint fin = Paint()
+      ..color = Color.lerp(color, const Color(0xFF7F0000), 0.35)!;
+    final Path topFin = Path()
+      ..moveTo(bodyLeft + w * 0.02, midY - h * 0.05)
+      ..lineTo(bodyLeft - w * 0.015, top - h * 0.025)
+      ..lineTo(bodyLeft + w * 0.13, midY - h * 0.045)
+      ..close();
+    canvas.drawPath(topFin, fin);
+    final Path bottomFin = Path()
+      ..moveTo(bodyLeft + w * 0.02, midY + h * 0.05)
+      ..lineTo(bodyLeft - w * 0.015, bottom + h * 0.025)
+      ..lineTo(bodyLeft + w * 0.13, midY + h * 0.045)
+      ..close();
+    canvas.drawPath(bottomFin, fin);
+
+    // Body — horizontal capsule.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(bodyLeft, midY - h * 0.075, bodyRight, midY + h * 0.075),
+        Radius.circular(h * 0.075),
+      ),
+      Paint()..color = color,
+    );
+
+    // Nose cone (front/right).
+    final Path nose = Path()
+      ..moveTo(bodyRight - w * 0.01, midY - h * 0.075)
+      ..quadraticBezierTo(w * 0.98, midY, bodyRight - w * 0.01, midY + h * 0.075)
+      ..close();
+    canvas.drawPath(nose, Paint()..color = const Color(0xFFB71C1C));
+
+    // Cockpit opening under the head (so the chibi rides IN it) + porthole.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.34, midY - h * 0.085, w * 0.62, midY),
+        const Radius.circular(4),
+      ),
+      Paint()..color = const Color(0xFFB3E5FC),
+    );
+    canvas.drawCircle(Offset(w * 0.70, midY), w * 0.045,
+        Paint()..color = const Color(0xFFB3E5FC));
+    canvas.drawCircle(
+      Offset(w * 0.70, midY),
+      w * 0.045,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = const Color(0xFF90A4AE),
+    );
+  }
+
+  // ── UFO (The Phantom's ride) ─────────────────────────────────────────────
+  // The ALPR-dodger flies the one vehicle no camera can identify. Classic
+  // saucer: translucent dome (the fedora'd head sits inside it), gunmetal
+  // disc, rim lights, and a soft abduction beam instead of wheels.
+
+  void _drawUfo(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final double midY = h * 0.68;
+
+    // Abduction beam — a soft glowing cone where wheels would be.
+    final Path beam = Path()
+      ..moveTo(w * 0.36, midY)
+      ..lineTo(w * 0.22, h * 0.95)
+      ..lineTo(w * 0.78, h * 0.95)
+      ..lineTo(w * 0.64, midY)
+      ..close();
+    canvas.drawPath(
+      beam,
+      Paint()
+        ..color = const Color(0x3376FF03) // faint alien green
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+
+    // Glass dome — translucent, drawn before the head so the chibi (and the
+    // fedora) reads as sitting INSIDE it. Wider than the (huge chibi) head so
+    // its glass edges stay visible around the face.
+    final Rect domeRect = Rect.fromCenter(
+        center: Offset(w * 0.5, midY - h * 0.06),
+        width: w * 0.84,
+        height: h * 0.34);
+    canvas.drawArc(domeRect, math.pi, math.pi, true,
+        Paint()..color = const Color(0x55B3E5FC));
+    canvas.drawArc(
+      domeRect,
+      math.pi,
+      math.pi,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8
+        ..color = const Color(0xAAB3E5FC),
+    );
+
+    // Saucer disc.
+    final Rect disc = Rect.fromCenter(
+        center: Offset(w * 0.5, midY),
+        width: w * 0.88,
+        height: h * 0.16);
+    canvas.drawOval(
+        disc.shift(const Offset(2, 2)), Paint()..color = Colors.black26);
+    canvas.drawOval(disc, Paint()..color = color);
+    // Underside — darker half-ellipse.
+    canvas.drawArc(
+        disc.inflate(0), 0, math.pi, true,
+        Paint()..color = Color.lerp(color, Colors.black, 0.35)!);
+
+    // Rim lights — the classic blinky trio.
+    const List<Color> rim = <Color>[
+      Color(0xFFFFEB3B),
+      Color(0xFF76FF03),
+      Color(0xFFFF6B6B),
+    ];
+    for (int i = 0; i < 3; i++) {
+      final double lx = w * (0.30 + 0.20 * i);
+      canvas.drawCircle(Offset(lx, midY + h * 0.035), 2.4,
+          Paint()..color = rim[i]);
+    }
+
+    // Tiny antenna with a glowing ball, off-center for charm.
+    canvas.drawLine(
+      Offset(w * 0.5, midY - h * 0.20),
+      Offset(w * 0.5, midY - h * 0.245),
+      Paint()
+        ..color = const Color(0xFF90A4AE)
+        ..strokeWidth = 1.5,
+    );
+    canvas.drawCircle(Offset(w * 0.5, midY - h * 0.255), 2.2,
+        Paint()..color = const Color(0xFF76FF03));
+  }
+
+  // ── Spectral float (The Ghost) ───────────────────────────────────────────
+  // Ghosts don't drive. A sheet-body that tapers into wisps where wheels
+  // would be, plus a faint trail drifting off to one side.
+
+  void _drawSpectralFloat(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final double top = h * 0.56;
+    final double bottom = h * 0.90;
+
+    // Drifting trail (behind, to the left).
+    final Paint trail = Paint()
+      ..color = color.withValues(alpha: 0.35)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+    canvas.drawCircle(Offset(w * 0.10, h * 0.72), w * 0.05, trail);
+    canvas.drawCircle(Offset(w * 0.04, h * 0.66), w * 0.033, trail);
+
+    // Sheet body: wide at the shoulders, wavy hem at the bottom.
+    final Path sheet = Path()
+      ..moveTo(w * 0.18, top + h * 0.02)
+      ..quadraticBezierTo(w * 0.5, top - h * 0.05, w * 0.82, top + h * 0.02)
+      ..lineTo(w * 0.84, bottom - h * 0.05);
+    // Wavy hem — four scallops.
+    const int scallops = 4;
+    for (int i = 0; i < scallops; i++) {
+      final double x1 = w * (0.84 - 0.165 * i) - w * 0.0825;
+      final double x2 = w * (0.84 - 0.165 * (i + 1));
+      sheet.quadraticBezierTo(
+          x1, bottom + h * 0.035, x2, bottom - h * 0.05);
+    }
+    sheet.close();
+    canvas.drawPath(sheet, Paint()..color = color.withValues(alpha: 0.92));
+    // Inner shade for a hint of depth.
+    canvas.drawPath(
+      sheet,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..color = const Color(0xFF9575CD).withValues(alpha: 0.5),
+    );
+  }
+
+  // ── Vintage sedan (The Grandpa) ──────────────────────────────────────────
+  // Rounded fenders, whitewall tires, and the LEFT BLINKER ETERNALLY ON.
+
+  void _drawVintageSedan(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final double top = h * 0.58;
+    final double bottom = h * 0.88;
+
+    // Shadow.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.08 + 2, top + 2, w * 0.92 + 2, bottom + 2),
+        Radius.circular(h * 0.10),
+      ),
+      Paint()..color = Colors.black26,
+    );
+
+    // Rounded vintage body — bigger corner radius than the modern car.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.08, top, w * 0.92, bottom),
+        Radius.circular(h * 0.10),
+      ),
+      Paint()..color = color,
+    );
+    // Sweeping fender line.
+    canvas.drawArc(
+      Rect.fromLTRB(w * 0.10, top + h * 0.10, w * 0.90, bottom + h * 0.06),
+      math.pi,
+      math.pi,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6
+        ..color = Colors.white.withValues(alpha: 0.35),
+    );
+
+    // Split windshield (the vintage tell) where the head pokes through.
+    final Paint window = Paint()..color = const Color(0xFFB3E5FC);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.30, top - 2, w * 0.485, top + h * 0.10),
+        const Radius.circular(3),
+      ),
+      window,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.515, top - 2, w * 0.70, top + h * 0.10),
+        const Radius.circular(3),
+      ),
+      window,
+    );
+
+    // Whitewall tires — the pride of the fleet.
+    final Paint tire = Paint()..color = const Color(0xFF212121);
+    final Paint whitewall = Paint()..color = const Color(0xFFF5F5F5);
+    final Paint hub = Paint()..color = const Color(0xFFBDBDBD);
+    for (final double x in <double>[w * 0.24, w * 0.76]) {
+      canvas.drawCircle(Offset(x, bottom - 1), 8, tire);
+      canvas.drawCircle(Offset(x, bottom - 1), 5, whitewall);
+      canvas.drawCircle(Offset(x, bottom - 1), 2.5, hub);
+    }
+
+    // The eternal left blinker (amber, gently "on").
+    canvas.drawCircle(
+      Offset(w * 0.105, bottom - h * 0.075),
+      3.2,
+      Paint()
+        ..color = const Color(0xFFFFB300)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+    );
+    // Right headlight, plain.
+    canvas.drawCircle(Offset(w * 0.895, bottom - h * 0.075), 3,
+        Paint()..color = const Color(0xFFFFF9C4));
+  }
+
+  // ── Crescent moon (The Night Owl) ────────────────────────────────────────
+  // Hammocked inside a golden crescent, stars around, one drifting Z.
+
+  void _drawCrescentMoon(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final Offset center = Offset(w * 0.5, h * 0.66);
+    final double rOuter = w * 0.42;
+
+    // Stars.
+    final Paint star = Paint()..color = const Color(0xFFFFF59D);
+    canvas.drawCircle(Offset(w * 0.10, h * 0.58), 1.8, star);
+    canvas.drawCircle(Offset(w * 0.90, h * 0.62), 1.4, star);
+    canvas.drawCircle(Offset(w * 0.16, h * 0.85), 1.4, star);
+    canvas.drawCircle(Offset(w * 0.86, h * 0.86), 1.8, star);
+
+    // Crescent: full disc minus an offset "bite" (clipped difference).
+    final Path disc = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: rOuter));
+    final Path bite = Path()
+      ..addOval(Rect.fromCircle(
+          center: Offset(center.dx, center.dy - h * 0.085),
+          radius: rOuter * 0.86));
+    final Path crescent =
+        Path.combine(PathOperation.difference, disc, bite);
+    // Soft moon glow.
+    canvas.drawPath(
+      crescent,
+      Paint()
+        ..color = color.withValues(alpha: 0.5)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+    );
+    canvas.drawPath(crescent, Paint()..color = color);
+    // A couple of craters on the visible rim.
+    final Paint crater = Paint()
+        ..color = Color.lerp(color, const Color(0xFF8D6E63), 0.35)!;
+    canvas.drawCircle(Offset(w * 0.28, h * 0.80), 2.4, crater);
+    canvas.drawCircle(Offset(w * 0.66, h * 0.845), 1.8, crater);
+
+    // One drifting Z (the nightcap head above completes the picture).
+    final TextPainter z = TextPainter(
+      text: TextSpan(
+        text: 'z',
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.8),
+          fontSize: h * 0.09,
+          fontWeight: FontWeight.w800,
+          fontStyle: FontStyle.italic,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    z.paint(canvas, Offset(w * 0.80, h * 0.50));
+  }
+
+  // ── Shopping cart (The Chaos Agent) ──────────────────────────────────────
+  // Unpredictable speed, constant rerouting: a chrome shopping cart at full
+  // tilt, one wheel wobbling, of course.
+
+  void _drawShoppingCart(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final double top = h * 0.58;
+    final double bottom = h * 0.84;
+
+    final Paint frame = Paint()
+      ..color = color
+      ..strokeWidth = 2.2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    // Basket — a trapezoid of chrome lattice.
+    final Path basket = Path()
+      ..moveTo(w * 0.16, top)
+      ..lineTo(w * 0.24, bottom - h * 0.045)
+      ..lineTo(w * 0.78, bottom - h * 0.045)
+      ..lineTo(w * 0.84, top)
+      ..close();
+    canvas.drawPath(
+        basket, Paint()..color = color.withValues(alpha: 0.25));
+    canvas.drawPath(basket, frame);
+    // Lattice bars — horizontal wires that follow the basket's taper.
+    for (int i = 1; i <= 3; i++) {
+      final double t = i / 4;
+      final double y = top + (bottom - h * 0.045 - top) * t;
+      canvas.drawLine(
+        Offset(w * (0.16 + 0.08 * t), y),
+        Offset(w * (0.84 - 0.06 * t), y),
+        frame..strokeWidth = 1.2,
+      );
+    }
+    frame.strokeWidth = 2.2;
+
+    // Handle bar (back-left, where a chaotic pilot grips).
+    canvas.drawLine(
+        Offset(w * 0.16, top), Offset(w * 0.06, top - h * 0.05), frame);
+    canvas.drawLine(Offset(w * 0.06, top - h * 0.05),
+        Offset(w * 0.06, top - h * 0.015), frame);
+
+    // Wheels: tiny casters — and the front one is WOBBLING.
+    final Paint tire = Paint()..color = const Color(0xFF212121);
+    final Paint hub = Paint()..color = const Color(0xFFBDBDBD);
+    canvas.drawCircle(Offset(w * 0.28, bottom + h * 0.02), 5, tire);
+    canvas.drawCircle(Offset(w * 0.28, bottom + h * 0.02), 2, hub);
+    // Wobble: front caster drawn tilted off its mount.
+    canvas.save();
+    canvas.translate(w * 0.72, bottom + h * 0.02);
+    canvas.rotate(0.5);
+    canvas.drawCircle(Offset.zero, 5, tire);
+    canvas.drawCircle(Offset.zero, 2, hub);
+    canvas.restore();
+
+    // Chaos lines (it is moving FAST).
+    final Paint lines = Paint()
+      ..color = Colors.white.withValues(alpha: 0.5)
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(w * 0.0, top + h * 0.05),
+        Offset(w * 0.10, top + h * 0.055), lines);
+    canvas.drawLine(Offset(w * 0.02, bottom - h * 0.02),
+        Offset(w * 0.11, bottom - h * 0.025), lines);
+  }
+
+  // ── Skateboard (The Street Rat) ──────────────────────────────────────────
+  // A chunky longboard with fat wheels — back roads only, obviously.
+
+  void _drawSkateboard(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final double deckY = h * 0.80;
+
+    // Shadow.
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: Offset(w * 0.5, h * 0.93), width: w * 0.7, height: h * 0.05),
+      Paint()..color = Colors.black26,
+    );
+
+    // Deck — slight kick at both ends via a bent path.
+    final Path deck = Path()
+      ..moveTo(w * 0.06, deckY - h * 0.035)
+      ..quadraticBezierTo(w * 0.10, deckY, w * 0.20, deckY)
+      ..lineTo(w * 0.80, deckY)
+      ..quadraticBezierTo(w * 0.90, deckY, w * 0.94, deckY - h * 0.035)
+      ..lineTo(w * 0.94, deckY + h * 0.005)
+      ..quadraticBezierTo(w * 0.90, deckY + h * 0.038, w * 0.80, deckY + h * 0.038)
+      ..lineTo(w * 0.20, deckY + h * 0.038)
+      ..quadraticBezierTo(w * 0.10, deckY + h * 0.038, w * 0.06, deckY + h * 0.005)
+      ..close();
+    canvas.drawPath(deck, Paint()..color = color);
+    // Grip-tape stripe.
+    canvas.drawLine(
+      Offset(w * 0.20, deckY + h * 0.012),
+      Offset(w * 0.80, deckY + h * 0.012),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..strokeWidth = 2,
+    );
+
+    // Fat wheels (urethane orange — skater canon).
+    final Paint wheel = Paint()..color = const Color(0xFFFF9800);
+    final Paint hub = Paint()..color = const Color(0xFFFFE0B2);
+    for (final double x in <double>[w * 0.26, w * 0.74]) {
+      canvas.drawCircle(Offset(x, deckY + h * 0.075), 6.5, wheel);
+      canvas.drawCircle(Offset(x, deckY + h * 0.075), 2.6, hub);
+    }
+  }
+
+  // ── Jeep (The Scout) ─────────────────────────────────────────────────────
+  // Open-top expedition rig: spare tire on the back, antenna flag up front.
+
+  void _drawJeep(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final double top = h * 0.60;
+    final double bottom = h * 0.88;
+
+    // Shadow.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.10 + 2, top + 2, w * 0.90 + 2, bottom + 2),
+        const Radius.circular(5),
+      ),
+      Paint()..color = Colors.black26,
+    );
+
+    // Boxy open-top body (no roof — the head IS the driver, visibly).
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.10, top, w * 0.90, bottom),
+        const Radius.circular(5),
+      ),
+      Paint()..color = color,
+    );
+    // Flat fold-down windshield in front of the head.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.62, top - h * 0.055, w * 0.68, top + h * 0.02),
+        const Radius.circular(2),
+      ),
+      Paint()..color = const Color(0xFFB3E5FC),
+    );
+    // Horizontal grille slats at the front.
+    final Paint slat = Paint()
+      ..color = Colors.black.withValues(alpha: 0.35)
+      ..strokeWidth = 1.4;
+    for (int i = 0; i < 3; i++) {
+      canvas.drawLine(
+        Offset(w * 0.84, top + h * 0.05 + i * h * 0.035),
+        Offset(w * 0.895, top + h * 0.05 + i * h * 0.035),
+        slat,
+      );
+    }
+
+    // Spare tire mounted on the back.
+    final Paint tire = Paint()..color = const Color(0xFF212121);
+    canvas.drawCircle(Offset(w * 0.085, (top + bottom) / 2), 7.5, tire);
+    canvas.drawCircle(Offset(w * 0.085, (top + bottom) / 2), 3,
+        Paint()..color = color);
+
+    // Knobby off-road wheels.
+    final Paint hub = Paint()..color = const Color(0xFFBDBDBD);
+    for (final double x in <double>[w * 0.28, w * 0.72]) {
+      canvas.drawCircle(Offset(x, bottom), 8.5, tire);
+      canvas.drawCircle(Offset(x, bottom), 3.2, hub);
+    }
+
+    // Antenna flag.
+    canvas.drawLine(
+      Offset(w * 0.14, top),
+      Offset(w * 0.14, top - h * 0.09),
+      Paint()
+        ..color = const Color(0xFF8D6E63)
+        ..strokeWidth = 1.5,
+    );
+    final Path flag = Path()
+      ..moveTo(w * 0.14, top - h * 0.09)
+      ..lineTo(w * 0.24, top - h * 0.0725)
+      ..lineTo(w * 0.14, top - h * 0.055)
+      ..close();
+    canvas.drawPath(flag, Paint()..color = const Color(0xFFFF6B6B));
+  }
+
+  // ── TUX KART (creator easter egg) ────────────────────────────────────────
+  // Tux the Linux penguin — fedora, go-kart, zero license plates on file.
+
+  void _paintTuxKart(Canvas canvas, Size size) {
+    final double w = size.width;
+    final double h = size.height;
+    final double cx = w / 2;
+
+    // Subtle terminal-green aura, because of course.
+    _drawAura(canvas, cx, h * 0.55, w * 0.50, const Color(0x2226A269));
+
+    // Kart first (behind the body).
+    _drawKart(canvas, size, const Color(0xFFE53935));
+
+    // Tux head (with the same bob as everyone else).
+    final double headRadius = w * 0.36;
+    final double bobOffset = math.sin(bob * 2 * math.pi) * h * 0.045;
+    final Offset head = Offset(cx, h * 0.38 + bobOffset);
+    _drawTuxHead(canvas, head, headRadius);
+
+    // The fedora — reused from The Phantom's wardrobe.
+    _drawFedora(canvas, head, headRadius);
+  }
+
+  void _drawTuxHead(Canvas canvas, Offset c, double r) {
+    // Black penguin head.
+    canvas.drawCircle(c, r, Paint()..color = const Color(0xFF1B1B1D));
+    // White face patch — two joined ovals, the classic Tux mask.
+    final Paint face = Paint()..color = Colors.white;
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: Offset(c.dx - r * 0.30, c.dy + r * 0.18),
+          width: r * 0.72,
+          height: r * 0.95),
+      face,
+    );
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: Offset(c.dx + r * 0.30, c.dy + r * 0.18),
+          width: r * 0.72,
+          height: r * 0.95),
+      face,
+    );
+
+    // Eyes — white sclera up in the black zone, dark pupils, tiny shine.
+    for (final double sx in <double>[-1, 1]) {
+      final Offset eye = Offset(c.dx + sx * r * 0.30, c.dy - r * 0.28);
+      canvas.drawOval(
+        Rect.fromCenter(
+            center: eye, width: r * 0.34, height: r * 0.42),
+        Paint()..color = Colors.white,
+      );
+      canvas.drawCircle(Offset(eye.dx + sx * r * 0.04, eye.dy + r * 0.05),
+          r * 0.09, Paint()..color = const Color(0xFF1B1B1D));
+      canvas.drawCircle(Offset(eye.dx + sx * r * 0.01, eye.dy - r * 0.01),
+          r * 0.03, Paint()..color = Colors.white);
+    }
+
+    // Beak — orange, slightly open (upper wedge over lower wedge).
+    final Paint beak = Paint()..color = const Color(0xFFF57C00);
+    final Path upperBeak = Path()
+      ..moveTo(c.dx - r * 0.22, c.dy + r * 0.02)
+      ..quadraticBezierTo(
+          c.dx, c.dy + r * 0.30, c.dx + r * 0.22, c.dy + r * 0.02)
+      ..quadraticBezierTo(c.dx, c.dy + r * 0.14, c.dx - r * 0.22, c.dy + r * 0.02)
+      ..close();
+    canvas.drawPath(upperBeak, beak);
+    canvas.drawPath(
+      upperBeak,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = const Color(0xFFBF5B00),
+    );
+  }
+
+  /// A Mario-style go-kart: low red body, nose cone, seat back, steering
+  /// wheel, chunky rear tire + smaller front tire, and a puff of exhaust.
+  void _drawKart(Canvas canvas, Size size, Color color) {
+    final double w = size.width;
+    final double h = size.height;
+    final double bodyTop = h * 0.68;
+    final double bodyBottom = h * 0.82;
+
+    // Shadow.
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: Offset(w * 0.5, h * 0.92), width: w * 0.8, height: h * 0.05),
+      Paint()..color = Colors.black26,
+    );
+
+    // Exhaust puff (rear-left).
+    final Paint puff = Paint()
+      ..color = Colors.white.withValues(alpha: 0.45)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
+    canvas.drawCircle(Offset(w * 0.045, bodyBottom - h * 0.01), w * 0.045, puff);
+    canvas.drawCircle(Offset(w * 0.10, bodyBottom - h * 0.035), w * 0.03, puff);
+
+    // Seat back — rises behind the head.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(w * 0.16, bodyTop - h * 0.09, w * 0.30, bodyTop + h * 0.02),
+        const Radius.circular(4),
+      ),
+      Paint()..color = Color.lerp(color, Colors.black, 0.25)!,
+    );
+
+    // Low kart body with a tapered nose (front = right).
+    final Path body = Path()
+      ..moveTo(w * 0.12, bodyTop)
+      ..lineTo(w * 0.74, bodyTop)
+      ..quadraticBezierTo(w * 0.95, bodyTop + h * 0.02, w * 0.92, bodyBottom)
+      ..lineTo(w * 0.14, bodyBottom)
+      ..quadraticBezierTo(w * 0.10, bodyBottom, w * 0.12, bodyTop)
+      ..close();
+    canvas.drawPath(body, Paint()..color = color);
+    // Racing stripe down the nose.
+    canvas.drawLine(
+      Offset(w * 0.60, bodyTop + h * 0.015),
+      Offset(w * 0.88, bodyBottom - h * 0.02),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.8)
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Steering column + wheel (in front of the driver).
+    canvas.drawLine(
+      Offset(w * 0.60, bodyTop),
+      Offset(w * 0.66, bodyTop - h * 0.055),
+      Paint()
+        ..color = const Color(0xFF424242)
+        ..strokeWidth = 2.5,
+    );
+    canvas.drawCircle(
+      Offset(w * 0.67, bodyTop - h * 0.06),
+      w * 0.055,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = const Color(0xFF424242),
+    );
+
+    // Wheels: chunky rear, smaller front — kart proportions.
+    final Paint tire = Paint()..color = const Color(0xFF212121);
+    final Paint hub = Paint()..color = const Color(0xFFFFD54F); // gold hubs
+    canvas.drawCircle(Offset(w * 0.22, bodyBottom + h * 0.015), 9, tire);
+    canvas.drawCircle(Offset(w * 0.22, bodyBottom + h * 0.015), 3.6, hub);
+    canvas.drawCircle(Offset(w * 0.78, bodyBottom + h * 0.02), 7, tire);
+    canvas.drawCircle(Offset(w * 0.78, bodyBottom + h * 0.02), 2.8, hub);
   }
 
   // ── Head ──────────────────────────────────────────────────────────────────
@@ -1281,9 +2083,13 @@ class AvatarWidget extends StatefulWidget {
     this.carColorOverride,
     this.equippedCosmetic,
     this.animate = true,
+    this.tux = false,
   });
 
   final DrivingArchetype archetype;
+
+  /// Creator easter egg — overrides everything with fedora'd Tux in a kart.
+  final bool tux;
 
   /// When set, overrides [archetype] with a special rare look.
   final RareArchetype? rareArchetype;
@@ -1345,6 +2151,7 @@ class _AvatarWidgetState extends State<AvatarWidget>
               carColorOverride: widget.carColorOverride,
               equippedCosmetic: widget.equippedCosmetic,
               bob: widget.animate ? _bob.value : 0.0,
+              tux: widget.tux,
             ),
           );
         },

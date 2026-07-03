@@ -6,6 +6,7 @@
 // to a coarse grid so we don't hammer Overpass on every GPS tick.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_ce/hive.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../constants.dart';
@@ -18,8 +19,14 @@ final Provider<AlprService> alprServiceProvider =
 
 /// Whether ALPR camera markers are shown on the map. OFF by default — the user
 /// opts in (privacy-first: nothing surveillance-related appears unbidden).
+/// PERSISTED: once the user opts in, that choice survives app restarts.
 final StateProvider<bool> alprLayerEnabledProvider =
-    StateProvider<bool>((Ref ref) => false);
+    StateProvider<bool>((Ref ref) {
+  ref.listenSelf((bool? prev, bool next) =>
+      Hive.box<dynamic>(hiveBoxSettings).put('alpr_layer_enabled', next));
+  return Hive.box<dynamic>(hiveBoxSettings)
+      .get('alpr_layer_enabled', defaultValue: false) as bool;
+});
 
 /// Coarse grid cell for the user's position. The ALPR fetch keys off this, so
 /// it re-queries only when the user crosses into a new ~1.4-mile cell.
