@@ -22,7 +22,7 @@ final Provider<AlprService> alprServiceProvider =
 /// PERSISTED: once the user opts in, that choice survives app restarts.
 final StateProvider<bool> alprLayerEnabledProvider =
     StateProvider<bool>((Ref ref) {
-  ref.listenSelf((bool? prev, bool next) =>
+  ref.listenSelf((Object? prev, Object? next) =>
       Hive.box<dynamic>(hiveBoxSettings).put('alpr_layer_enabled', next));
   return Hive.box<dynamic>(hiveBoxSettings)
       .get('alpr_layer_enabled', defaultValue: false) as bool;

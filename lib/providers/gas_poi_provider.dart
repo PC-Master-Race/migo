@@ -22,7 +22,7 @@ import 'map_provider.dart'; // for currentZoomProvider
 /// StateProvider that reset every launch).
 final StateProvider<bool> gasLayerEnabledProvider =
     StateProvider<bool>((Ref ref) {
-  ref.listenSelf((bool? prev, bool next) =>
+  ref.listenSelf((Object? prev, Object? next) =>
       Hive.box<dynamic>(hiveBoxSettings).put('gas_layer_enabled', next));
   return Hive.box<dynamic>(hiveBoxSettings)
       .get('gas_layer_enabled', defaultValue: false) as bool;

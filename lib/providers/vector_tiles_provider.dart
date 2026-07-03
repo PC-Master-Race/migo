@@ -53,12 +53,46 @@ const String _lightStyleUrl =
     'https://api.maptiler.com/maps/bright/style.json?key={key}';
 
 /// Fully-resolved style URLs for renderers that take a URL directly
-/// (MapLibre GL). Same styles, same key, no Dart-side processing needed —
-/// the native renderer handles fonts/labels properly on its own.
+/// (MapLibre GL).
 String get maptilerDarkStyleUrl =>
     _darkStyleUrl.replaceAll('{key}', maptilerApiKey);
 String get maptilerLightStyleUrl =>
     _lightStyleUrl.replaceAll('{key}', maptilerApiKey);
+
+/// MapLibre style JSON STRINGS with Migo's treatments applied — the same
+/// Google-night recolor + park injection + label boost the old renderer got.
+/// MapLibre accepts raw JSON as styleString, so stock Dark Matter's
+/// unreadable black-on-black never reaches the screen.
+final FutureProvider<String> maplibreDarkStyleProvider =
+    FutureProvider<String>((Ref ref) async {
+  final http.Response r = await http
+      .get(Uri.parse(maptilerDarkStyleUrl))
+      .timeout(const Duration(seconds: 15));
+  if (r.statusCode != 200) {
+    throw Exception('MapTiler style HTTP ${r.statusCode}');
+  }
+  final Map<String, dynamic> styleJson =
+      jsonDecode(r.body) as Map<String, dynamic>;
+  _applyGoogleNightPalette(styleJson);
+  _injectParkLayersIfMissing(styleJson);
+  _boostLabels(styleJson, dark: true);
+  return jsonEncode(styleJson);
+});
+
+/// Light style for MapLibre: stock OSM Bright + the label boost only.
+final FutureProvider<String> maplibreLightStyleProvider =
+    FutureProvider<String>((Ref ref) async {
+  final http.Response r = await http
+      .get(Uri.parse(maptilerLightStyleUrl))
+      .timeout(const Duration(seconds: 15));
+  if (r.statusCode != 200) {
+    throw Exception('MapTiler style HTTP ${r.statusCode}');
+  }
+  final Map<String, dynamic> styleJson =
+      jsonDecode(r.body) as Map<String, dynamic>;
+  _boostLabels(styleJson, dark: false);
+  return jsonEncode(styleJson);
+});
 
 /// One ready-to-render style: boosted theme + tile providers + sprites.
 typedef VectorStyle = ({

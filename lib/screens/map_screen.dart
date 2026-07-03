@@ -179,6 +179,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   void _followPositionIfEnabled(Position position) {
+    if (useMapLibre) return; // GL view drives its own camera
     if (!_isFollowingUser) return;
     _mapController.move(
       LatLng(position.latitude, position.longitude),
@@ -216,6 +217,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void _handleFirstFix(Position position) {
     if (_hasHadFirstFix) return;
     _hasHadFirstFix = true;
+    // MapLibre path: the GL view centers itself on fixes — and the
+    // flutter_map controller has no widget attached, so touching it throws.
+    if (useMapLibre) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _mapController.move(
@@ -282,11 +286,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           );
       // Focus on the START (the user), not the destination — navigation should
       // begin from where you are. Resume following so the map tracks you.
-      _mapController.move(LatLng(pos.latitude, pos.longitude), mapFirstFixZoom);
+      if (!useMapLibre) {
+        _mapController.move(
+            LatLng(pos.latitude, pos.longitude), mapFirstFixZoom);
+      }
       setState(() => _isFollowingUser = true);
     } else {
       // No GPS fix yet — fall back to showing the destination.
-      _mapController.move(loc.position, 14.0);
+      if (!useMapLibre) _mapController.move(loc.position, 14.0);
       setState(() => _isFollowingUser = false);
     }
   }
@@ -384,11 +391,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           );
       // Focus on the START (the user), not the destination — navigation should
       // begin from where you are. Resume following so the map tracks you.
-      _mapController.move(LatLng(pos.latitude, pos.longitude), mapFirstFixZoom);
+      if (!useMapLibre) {
+        _mapController.move(
+            LatLng(pos.latitude, pos.longitude), mapFirstFixZoom);
+      }
       setState(() => _isFollowingUser = true);
     } else {
       // No GPS fix yet — fall back to showing the destination.
-      _mapController.move(result.position, 14.0);
+      if (!useMapLibre) _mapController.move(result.position, 14.0);
       setState(() => _isFollowingUser = false);
     }
   }
@@ -591,20 +601,26 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final bool nowNavigating = ref.watch(destinationProvider) != null;
     if (nowNavigating && !_isNavigating) {
       _isNavigating = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _mapController.move(_mapController.camera.center, mapNavigationZoom);
-        }
-      });
+      // MapLibre handles its own nav-zoom/tilt transitions.
+      if (!useMapLibre) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _mapController.move(
+                _mapController.camera.center, mapNavigationZoom);
+          }
+        });
+      }
     } else if (!nowNavigating && _isNavigating) {
       _isNavigating = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          // Navigation over: zoom back out AND restore north-up.
-          _mapController.moveAndRotate(
-              _mapController.camera.center, mapFirstFixZoom, 0);
-        }
-      });
+      if (!useMapLibre) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            // Navigation over: zoom back out AND restore north-up.
+            _mapController.moveAndRotate(
+                _mapController.camera.center, mapFirstFixZoom, 0);
+          }
+        });
+      }
     }
 
     // Layout helpers — all vertical positions derive from status bar height

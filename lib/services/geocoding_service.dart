@@ -53,33 +53,40 @@ class GeocodingService {
     final String q = query.trim();
     if (q.isEmpty) return <GeocodingResult>[];
 
-    // A leading digit means the user is typing a street address.
-    final bool looksLikeAddress = RegExp(r'^\s*\d').hasMatch(q);
+    // Query tokens, split by kind — declared FIRST because everything below
+    // (passes, gate, ranking) uses them.
+    final List<String> queryTokens = _tokenize(q);
+    final List<String> wordTokens =
+        queryTokens.where((String t) => !_isNumeric(t)).toList();
+    final List<String> numberTokens =
+        queryTokens.where(_isNumeric).toList();
 
-    // Runs the preferred engine for [q] inside [bbox], falling back to the
-    // other engine if the first finds nothing. Logs which engine answered and
-    // every coordinate — the diagnostic trail for "pin on the wrong side".
+    // PHOTON FIRST, ALWAYS. Photon is an autocomplete geocoder — it matches
+    // partial input ("1515 V" → 1515 V-something streets) and handles house
+    // numbers. Nominatim needs complete words, so leading with it on
+    // address-like input made half-typed searches come back empty nearby and
+    // let far-region junk fill the list. Nominatim is the fallback for full
+    // addresses Photon fumbles.
     Future<List<GeocodingResult>> runPass(_GeoBBox bbox) async {
-      List<GeocodingResult> results;
-      String engine;
-      if (looksLikeAddress) {
+      List<GeocodingResult> results =
+          await _photonSearch(q, userPosition: userPosition, bbox: bbox);
+      String engine = 'photon';
+
+      // PARTIAL-ADDRESS RESCUE: with a house number present, Photon only
+      // matches complete address points — "1515 ver" finds nothing even
+      // though Verness St is right there. Retry with the street words only,
+      // so matching STREETS appear while the user is still typing; the
+      // number-aware ranking sorts exact address hits first once they exist.
+      if (results.isEmpty && numberTokens.isNotEmpty && wordTokens.isNotEmpty) {
+        results = await _photonSearch(wordTokens.join(' '),
+            userPosition: userPosition, bbox: bbox);
+        engine = 'photon(street-only)';
+      }
+
+      if (results.isEmpty) {
         results = await _nominatimSearch(q,
             userPosition: userPosition, bbox: bbox);
-        engine = 'nominatim';
-        if (results.isEmpty) {
-          results =
-              await _photonSearch(q, userPosition: userPosition, bbox: bbox);
-          engine = 'photon(fallback)';
-        }
-      } else {
-        results =
-            await _photonSearch(q, userPosition: userPosition, bbox: bbox);
-        engine = 'photon';
-        if (results.isEmpty) {
-          results = await _nominatimSearch(q,
-              userPosition: userPosition, bbox: bbox);
-          engine = 'nominatim(fallback)';
-        }
+        engine = 'nominatim(fallback)';
       }
       for (final GeocodingResult r in results) {
         debugPrint('[geocode] $engine "$q" → "${r.shortName}" @ '
@@ -89,6 +96,36 @@ class GeocodingService {
       return results;
     }
 
+    // RELEVANCE GATE: geocoders fuzzy-match loosely — "1515 ver" can come
+    // back as places containing neither "1515" nor "ver". Every result must
+    // actually match what was typed:
+    //   • every WORD token must prefix-match a word in the result
+    //     ("ver" → Verness ✓, San Fernando Rd ✗)
+    //   • NUMBER tokens (house numbers) rank matches first but don't drop
+    //     number-less street results — the exact address pin may not exist
+    //     in OSM even when the street does.
+    bool relevant(GeocodingResult r) {
+      final List<String> resultWords =
+          _tokenize('${r.displayName} ${r.shortName}');
+      // Number-only query ("1515"): the number itself must appear — without
+      // this, no word tokens meant EVERYTHING passed (the "1 real result
+      // plus irrelevant junk" bug).
+      if (wordTokens.isEmpty) {
+        return numberTokens.every((String t) =>
+            resultWords.any((String w) => w.startsWith(t)));
+      }
+      return wordTokens.every((String t) =>
+          resultWords.any((String w) => w.startsWith(t)));
+    }
+
+    bool hasNumbers(GeocodingResult r) {
+      if (numberTokens.isEmpty) return false;
+      final List<String> resultWords =
+          _tokenize('${r.displayName} ${r.shortName}');
+      return numberTokens.every((String t) =>
+          resultWords.any((String w) => w.startsWith(t)));
+    }
+
     // NEAR matches rank first; REGION matches fill the remaining slots BELOW
     // them (closer stays on top until it stops matching — then the next tier
     // takes over). WIDE only joins for specific-enough queries.
@@ -96,6 +133,7 @@ class GeocodingService {
     void addNew(List<GeocodingResult> batch) {
       for (final GeocodingResult r in batch) {
         if (merged.length >= nominatimMaxResults) return;
+        if (!relevant(r)) continue; // must match what was actually typed
         final bool duplicate = merged.any((GeocodingResult m) =>
             m.displayName == r.displayName ||
             const Distance().as(LengthUnit.Meter, m.position, r.position) <
@@ -141,8 +179,67 @@ class GeocodingService {
     if (merged.length < nominatimMaxResults && specificEnough) {
       addNew(await runPass(const _GeoBBox.unitedStates()));
     }
+    // TWO-STAGE ADDRESS RESOLVE (Ruben's algorithm): when the user has typed
+    // a house number but no result carries it yet, we already KNOW the
+    // candidate streets — so compose the full address ourselves
+    // ("1515" + "Verness Street, West Covina") and look THAT up directly.
+    // Nominatim can't match partials, but it resolves complete composed
+    // addresses beautifully. This is what makes "1515 ver" produce
+    // "1515 Verness St" without typing the whole thing.
+    if (numberTokens.isNotEmpty &&
+        merged.isNotEmpty &&
+        !merged.any(hasNumbers)) {
+      for (final GeocodingResult street
+          in merged.where((GeocodingResult r) => !hasNumbers(r)).take(2)) {
+        final String composed =
+            '${numberTokens.join(' ')} ${street.displayName}';
+        final List<GeocodingResult> hits = await _nominatimSearch(
+          composed,
+          userPosition: userPosition,
+          // Tight box around the candidate street — we know where it is.
+          bbox: _bboxAround(street.position, 5),
+        );
+        GeocodingResult? exact;
+        for (final GeocodingResult h in hits) {
+          if (hasNumbers(h)) {
+            exact = h;
+            break;
+          }
+        }
+        if (exact != null) {
+          debugPrint('[geocode] two-stage resolve: "$composed" → '
+              '"${exact.shortName}"');
+          merged.insert(0, exact);
+          break;
+        }
+      }
+      if (merged.length > nominatimMaxResults) {
+        merged.removeRange(nominatimMaxResults, merged.length);
+      }
+    }
+
+    // Final ordering: results matching the typed HOUSE NUMBER outrank ones
+    // that only match the street; within each group, nearest first.
+    if (userPosition != null) _sortByDistance(merged, userPosition);
+    if (numberTokens.isNotEmpty) {
+      final List<GeocodingResult> withNumber =
+          merged.where(hasNumbers).toList();
+      final List<GeocodingResult> withoutNumber =
+          merged.where((GeocodingResult r) => !hasNumbers(r)).toList();
+      return <GeocodingResult>[...withNumber, ...withoutNumber];
+    }
     return merged;
   }
+
+  /// Lowercase word tokens: letters+digits only, split on everything else.
+  List<String> _tokenize(String s) => s
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+      .split(RegExp(r'\s+'))
+      .where((String t) => t.isNotEmpty)
+      .toList();
+
+  bool _isNumeric(String t) => RegExp(r'^\d+$').hasMatch(t);
 
   /// A ~[radiusMiles] bounding box centred on [center]. Longitude degrees are
   /// scaled by latitude so the box stays roughly square in real distance.
@@ -169,15 +266,21 @@ class GeocodingService {
   }) async {
     final Map<String, String> params = <String, String>{
       'q': query,
-      'limit': '$nominatimMaxResults',
+      // Ask for MORE than we display: Photon's own ranking often buries the
+      // exact address match below fuzzy junk — our relevance gate + number
+      // ranking then picks the right 5 from a deeper pool.
+      'limit': '12',
       'lang': 'en',
     };
 
-    // When lat/lon are provided Photon weights distance heavily —
-    // the nearest matching place almost always comes first.
+    // When lat/lon are provided Photon weights distance —
+    // zoom + location_bias_scale strengthen that pull so nearby matches
+    // outrank bigger/more-famous distant ones while typing.
     if (userPosition != null) {
       params['lat'] = userPosition.latitude.toStringAsFixed(6);
       params['lon'] = userPosition.longitude.toStringAsFixed(6);
+      params['zoom'] = '14';
+      params['location_bias_scale'] = '0.5';
     }
 
     // Restrict results to the box (Photon bbox: minLon,minLat,maxLon,maxLat).

@@ -20,6 +20,7 @@
 // only has to choose which map widget to build.
 
 import 'dart:async';
+import 'dart:math' show Point;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -54,6 +55,14 @@ class _MigoMapLibreViewState extends ConsumerState<MigoMapLibreView> {
 
   /// Last route we drew, so we only rewrite the GeoJSON when it changes.
   BravoRoute? _drawnRoute;
+
+  /// Last camera state we commanded — used as a DEADBAND: a stationary car's
+  /// GPS jitter must not re-animate the camera every second, because constant
+  /// camera motion makes the label engine endlessly re-run collision
+  /// placement (street names blinking in/out and flipping orientation).
+  ll.LatLng? _lastCamTarget;
+  double _lastCamBearing = 0;
+  double _lastCamTilt = -1;
 
   // ---------------------------------------------------------------------------
   // Sources / layers
@@ -212,16 +221,36 @@ class _MigoMapLibreViewState extends ConsumerState<MigoMapLibreView> {
     final double? heading = ref.read(displayedHeadingProvider) ??
         ((p.heading.isFinite && p.heading >= 0) ? p.heading : null);
 
+    final double bearing = navigating && heading != null ? heading : 0;
+    final double tilt =
+        navigating ? navCameraTiltDegrees : browseCameraTiltDegrees;
+
+    // DEADBAND: skip the update entirely when nothing meaningful changed —
+    // under ~5 m of movement, ~3° of bearing, same tilt. A parked car's
+    // jitter otherwise keeps the camera in perpetual motion and the street
+    // labels in perpetual re-placement (the blinking).
+    final bool moved = _lastCamTarget == null ||
+        const ll.Distance().as(ll.LengthUnit.Meter, _lastCamTarget!, here) >
+            5.0;
+    final double bearingDelta =
+        ((bearing - _lastCamBearing).abs() + 360) % 360;
+    final bool turned = bearingDelta > 3 && bearingDelta < 357;
+    final bool tilted = tilt != _lastCamTilt;
+    if (!moved && !turned && !tilted) return;
+    _lastCamTarget = here;
+    _lastCamBearing = bearing;
+    _lastCamTilt = tilt;
+
     final CameraPosition target = CameraPosition(
       target: LatLng(p.latitude, p.longitude),
       zoom: navigating ? mapNavigationZoom : (_controller!
               .cameraPosition?.zoom ??
           mapFirstFixZoom),
-      bearing: navigating && heading != null ? heading : 0,
+      bearing: bearing,
       // THE ANGLED VIEW: pitch the camera during navigation. With tilt, the
       // visible map extends far ahead of the puck naturally — no manual
       // look-ahead offset needed like on the flat map.
-      tilt: navigating ? navCameraTiltDegrees : browseCameraTiltDegrees,
+      tilt: tilt,
     );
     unawaited(_controller!.animateCamera(
       CameraUpdate.newCameraPosition(target),
@@ -250,23 +279,49 @@ class _MigoMapLibreViewState extends ConsumerState<MigoMapLibreView> {
 
     final Position? p = ref.read(positionStreamProvider).valueOrNull;
 
+    // Style JSON with Migo's treatments (Google-night recolor, park
+    // injection, label boost) — stock Dark Matter is unreadably black.
+    final AsyncValue<String> styleAsync = ref.watch(
+        dark ? maplibreDarkStyleProvider : maplibreLightStyleProvider);
+    final String? styleJson = styleAsync.valueOrNull;
+    if (styleJson == null) {
+      // Style still downloading (or failed): show a quiet placeholder in the
+      // right base color rather than flashing the raw unstyled map.
+      return Container(
+        color: dark ? const Color(0xFF1E2836) : migoCream,
+        alignment: Alignment.center,
+        child: styleAsync.hasError
+            ? Text('Map style failed to load — check connection',
+                style: TextStyle(
+                    color: dark ? Colors.white70 : Colors.black54))
+            : const CircularProgressIndicator(color: migoRouteNeon),
+      );
+    }
+
     // Pausing follow on touch: any pointer contact holds the camera still
     // for 8 s so the user can look around; following resumes automatically.
     return Listener(
       onPointerDown: (_) => _lastUserTouch = DateTime.now(),
       child: MapLibreMap(
         key: ValueKey<bool>(dark), // rebuild on theme flip → style reloads
-        styleString: dark ? maptilerDarkStyleUrl : maptilerLightStyleUrl,
+        styleString: styleJson,
         initialCameraPosition: CameraPosition(
           target: p != null
               ? LatLng(p.latitude, p.longitude)
               : const LatLng(34.0975, -117.6484), // Upland fallback
           zoom: mapFirstFixZoom,
         ),
-        onMapCreated: (MapLibreMapController c) => _controller = c,
+        onMapCreated: (MapLibreMapController c) {
+          _controller = c;
+          _styleReady = false; // theme flip recreates the map — re-add layers
+          _drawnRoute = null;
+        },
         onStyleLoadedCallback: _onStyleLoaded,
         myLocationEnabled: false, // we draw our own puck/avatar
-        compassEnabled: false,
+        // Compass button appears when the map is rotated; tapping it snaps
+        // back to north — the only way home after a two-finger rotate.
+        compassEnabled: true,
+        compassViewMargins: const Point<num>(16, 160),
         rotateGesturesEnabled: true,
         tiltGesturesEnabled: true,
         trackCameraPosition: true,

@@ -24,7 +24,7 @@ import 'location_provider.dart';
 /// PERSISTED: turning it off (or on) survives app restarts.
 final StateProvider<bool> hazardLayerEnabledProvider =
     StateProvider<bool>((Ref ref) {
-  ref.listenSelf((bool? prev, bool next) =>
+  ref.listenSelf((Object? prev, Object? next) =>
       Hive.box<dynamic>(hiveBoxSettings).put('hazard_layer_enabled', next));
   return Hive.box<dynamic>(hiveBoxSettings)
       .get('hazard_layer_enabled', defaultValue: true) as bool;
