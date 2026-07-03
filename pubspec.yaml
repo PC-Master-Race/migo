@@ -20,6 +20,11 @@ dependencies:
   # --- MAPS ---
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
+  # MapLibre GL Native (maplibre.org, BSD): the GPU renderer that unlocks the
+  # TILTED navigation camera (pitch/bearing), buttery zoom/rotate, and native
+  # rendering of our MapTiler styles. Being phased in behind USE_MAPLIBRE
+  # (env.json); flutter_map remains the default until the port is complete.
+  maplibre_gl: ^0.26.1
   # Vector tiles: client-side rendered map so we control the dark theme and
   # label size/weight/color (Google-style) instead of baked-in raster labels.
   # vector_map_tiles 8.x targets flutter_map ^7.0.2; the _pmtiles provider adds

@@ -52,6 +52,14 @@ const String _darkStyleUrl =
 const String _lightStyleUrl =
     'https://api.maptiler.com/maps/bright/style.json?key={key}';
 
+/// Fully-resolved style URLs for renderers that take a URL directly
+/// (MapLibre GL). Same styles, same key, no Dart-side processing needed —
+/// the native renderer handles fonts/labels properly on its own.
+String get maptilerDarkStyleUrl =>
+    _darkStyleUrl.replaceAll('{key}', maptilerApiKey);
+String get maptilerLightStyleUrl =>
+    _lightStyleUrl.replaceAll('{key}', maptilerApiKey);
+
 /// One ready-to-render style: boosted theme + tile providers + sprites.
 typedef VectorStyle = ({
   vtr.Theme theme,

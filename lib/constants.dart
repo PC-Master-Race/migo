@@ -260,6 +260,19 @@ const int archetypeRevealSessionCount = 3;
 /// it; "Automatic" brings Tux back.
 const bool creatorMode = bool.fromEnvironment('CREATOR_MODE');
 
+// --- MAPLIBRE MIGRATION (in progress) ---
+// The tilted Google/Waze-style navigation view needs a real GL renderer.
+// The port lives behind this flag so flutter_map keeps working untouched
+// until every phase is done. Flip USE_MAPLIBRE in env.json to preview.
+const bool useMapLibre = bool.fromEnvironment('USE_MAPLIBRE');
+
+/// Camera pitch (degrees) during navigation on the MapLibre map — the
+/// "angled view". 0 = top-down. Google uses roughly 45-60.
+const double navCameraTiltDegrees = 55.0;
+
+/// Camera pitch when NOT navigating (browsing the map). Flat.
+const double browseCameraTiltDegrees = 0.0;
+
 /// Acceleration (m/s²) that counts as a "hard acceleration".
 /// 3.0 m/s² ≈ 0.31 g — a noticeably aggressive launch.
 const double hardAccelMps2 = 3.0;

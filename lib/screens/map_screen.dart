@@ -41,6 +41,7 @@ import '../providers/archetype_provider.dart';
 import '../widgets/avatar/avatar_painter.dart';
 import '../widgets/cartoon_avatar/user_location_marker.dart';
 import '../widgets/cartoon_avatar/smooth_user_marker_layer.dart';
+import '../widgets/map/migo_maplibre_view.dart';
 import '../widgets/hud/speed_hud.dart';
 import '../widgets/map_controls/recenter_button.dart';
 import 'route_options_screen.dart';
@@ -522,6 +523,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // points to the top of the screen, like Google/Waze).
     ref.listen<LatLng?>(displayedPositionProvider,
         (LatLng? prev, LatLng? next) {
+      // MapLibre path drives its own camera (native animation) — the
+      // flutter_map controller isn't attached to anything there.
+      if (useMapLibre) return;
       if (next == null || !_isFollowingUser || !_hasHadFirstFix) return;
       final bool navigating = ref.read(destinationProvider) != null;
       final double? heading =
@@ -724,6 +728,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     Position? position,
     BravoRoute? route,
   ) {
+    // MAPLIBRE MIGRATION: the GL map manages its own camera, route layers,
+    // and puck. Overlay UI (banner, bars, FABs) is map-agnostic and stays.
+    if (useMapLibre) return const MigoMapLibreView();
+
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
