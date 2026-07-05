@@ -6,6 +6,7 @@
 // unnamed so discovery stays fun. "Automatic" follows the current dominant
 // archetype (the default behavior since Phase 4).
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -41,6 +42,9 @@ class _AvatarPickerSheet extends ConsumerWidget {
     // Creator builds own the whole garage — needed to test every look.
     final List<DrivingArchetype> unlocked =
         creatorMode ? DrivingArchetype.values : profile.unlockedArchetypes;
+    debugPrint('[avatar] picker: creatorMode=$creatorMode '
+        'unlocked=${unlocked.length} selected=${profile.selectedArchetype} '
+        'sessions=${profile.sessionCount}');
 
     return Container(
       decoration: BoxDecoration(

@@ -327,6 +327,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 20),
           _sectionHeader('About'),
           _card(<Widget>[
+            _InfoTile(
+              label: 'Why Migo exists',
+              value: '',
+              onTap: () => _showMissionSheet(context),
+            ),
+            _dividerLine(context),
             const _InfoTile(label: 'Version', value: '0.7.0-alpha'),
             _dividerLine(context),
             // TODO: [publish a real privacy policy URL before release] —
@@ -401,6 +407,74 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Icon(Icons.chevron_right_rounded, color: ink.withValues(alpha: 0.3)),
       onTap: () => showAvatarPickerSheet(context),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+    );
+  }
+
+  /// The mission statement — why this app exists. Deliberately written in
+  /// plain language: privacy is a right, not probable cause.
+  void _showMissionSheet(BuildContext context) {
+    final Color ink = _inkFor(context);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _cardFor(context),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (BuildContext ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                        color: ink.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                Text('Why Migo exists',
+                    style: TextStyle(
+                        color: ink,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 16),
+                Text(
+                  'Migo was built on a simple belief: not being watched is '
+                  'a human right.\n\n'
+                  'The Fourth Amendment promises people security "in their '
+                  'persons, houses, papers, and effects, against '
+                  'unreasonable searches." We believe your daily drive '
+                  'belongs on that list. Where you go — to church, to a '
+                  'clinic, to a protest, to your mom\'s house — paints a '
+                  'picture of who you are. That picture belongs to you.\n\n'
+                  'Automated license plate readers photograph millions of '
+                  'ordinary drivers every day, building searchable records '
+                  'of their movements — no warrant, no suspicion, no '
+                  'expiration date. Choosing not to participate in that is '
+                  'not suspicious. Wanting privacy does not make you a '
+                  'criminal, any more than curtains on your windows or an '
+                  'envelope around a letter make you one.\n\n'
+                  'That\'s why Migo never sells your location, never '
+                  'profiles you, and never phones home. Your map. Your '
+                  'routes. Your business.\n\n'
+                  'Drive free.',
+                  style: TextStyle(
+                      color: ink.withValues(alpha: 0.85),
+                      fontSize: 15,
+                      height: 1.6),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 

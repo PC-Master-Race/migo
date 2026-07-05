@@ -59,9 +59,10 @@ class UserLocationMarker extends ConsumerWidget {
 
             // Pre-reveal: the avatar hasn't HATCHED yet. Until enough
             // sessions exist to earn a real archetype, show the mystery egg —
-            // "Drive to discover your avatar," literally. (Also keeps Zen
-            // Master earned-only instead of being the freebie default.)
-            if (profile.rareArchetype == null &&
+            // "Drive to discover your avatar," literally. An EXPLICIT pick
+            // always wins over the egg (it was hiding selections).
+            if (profile.selectedArchetype == null &&
+                profile.rareArchetype == null &&
                 profile.sessionCount < archetypeRevealSessionCount) {
               return GestureDetector(
                 onTap: () => ScaffoldMessenger.of(ctx).showSnackBar(

@@ -206,6 +206,133 @@ hardcoding anything.
 > - **STILL PENDING**: real drive test of GPS smoothing + snap-to-route +
 >   rotation; Valhalla recovery check; MapTiler dark map field test.
 
+> **SESSION UPDATE 3 (2026-07-02, evening): MAPLIBRE IS IN AND WORKING.**
+>
+> **MapLibre GL migration (Phases 0-3 DONE, verified on the Pixel 8 Pro —
+> Ruben's words: "working awesome"):**
+> - `maplibre_gl: ^0.26.1` behind `USE_MAPLIBRE` in env.json (currently the
+>   flag Ruben tests with; flutter_map path still fully working when false).
+> - `lib/widgets/map/migo_maplibre_view.dart` — self-contained GL view:
+>   MapTiler styles fetched as JSON, run through the SAME Google-night
+>   recolor + park injection + label boost, passed as styleString. Camera:
+>   heading-up bearing + 55° TILT during nav (constants: navCameraTiltDegrees),
+>   native 900ms animateCamera per fix, DEADBAND (5m/3°) — without it GPS
+>   jitter kept labels re-placing (blinking bug, fixed). Neon route = 3 GL
+>   line layers. Compass button enabled (two-finger rotate exists now).
+>   Placeholder neon-dot puck.
+> - map_screen: all flutter_map controller calls guarded with `useMapLibre`
+>   (it THROWS if touched with no FlutterMap built — was crashing first fix).
+> - **PHASE 4 TODO:** avatar/Tux as symbol images (render CustomPainter →
+>   PNG → addImage+symbol), destination flag, hazard/ALPR/gas/POI markers,
+>   marker taps. **PHASE 5 TODO:** proper follow-pause/recenter parity
+>   (currently: any touch pauses follow 8s), zoom-mode sync, then flip
+>   default + retire flutter_map path.
+> - Heading-up on MapLibre needs a REAL DRIVE to verify (stationary bearing
+>   is always 0 by design).
+>
+> **Search overhaul v2 (geocoding_service):**
+> - Photon FIRST always (autocomplete engine; Nominatim can't do partials —
+>   it was leading for address-like queries and starving nearby results).
+> - Photon: zoom=14 + location_bias_scale=0.5 + limit 12 (deep pool, we pick).
+> - RELEVANCE GATE: every typed word token must prefix-match result words;
+>   number-only queries require the number. Kills Photon fuzzy junk
+>   ("1515 ver" → San Fernando garbage: gone).
+> - Street-only rescue: number+partial queries retry without the number so
+>   matching STREETS show while typing.
+> - TWO-STAGE RESOLVE (Ruben's idea): when number typed but unresolved,
+>   compose "number + candidate street displayName" → Nominatim in 5mi box →
+>   exact address inserted on top. Works from "1515 vernes" (was full-address
+>   only). True Google-grade prefix ("1515 ver") needs a self-hosted geocoder
+>   with autocomplete index — roadmap.
+> - Search anchor falls back to displayedPosition; US-wide tier hard-gated on
+>   query specificity ALWAYS; per-tier client-side distance enforcement;
+>   final nearest-first sort + house-number matches ranked on top.
+>
+> **Nav/UX (drive-test feedback round):** search bar HIDES during nav, banner
+> at very top (Google-style); banner "Then in <dist> → <street>"; bottom bar
+> true black w/ 26pt ETA + "End" (was "Exit"); look-ahead camera on
+> flutter_map path (22% scrn ahead); voice ON by default (BOTH
+> settings_provider AND tts_service defaults — they must match), reminder at
+> 25% of leg remaining (navTurnReminderFraction) + chained "then..." for
+> back-to-back turns (navChainManeuverMeters 300m).
+>
+> **ALPR avoidance is now LOCAL-FIRST:** one request w/ alternates:2 →
+> score all candidates against on-device camera DB (countCamerasNearRoute)
+> → cleanest wins; zero cameras = done with NO exclude_polygons. Only if all
+> candidates cross cameras → exclusions for that route's cameras w/ adaptive
+> HALVING retry (never dies, degrades). Notices tell the user which mode won.
+> Ruben's earlier drive: total avoidance failure notice → the halving+
+> alternates flow shipped AFTER that; needs retest. If it still fails,
+> capture `adb logcat | findstr routing` — Valhalla's rejection body.
+>
+> **Misc fixes:** layer toggles (gas/hazard/ALPR camera) now Hive-persisted
+> via ref.listenSelf w/ `Object?` params (typed params don't compile);
+> settings' dead ALPR-avoidance + route-preference toggles now SEED
+> routePreferencesProvider (settings=default, route sheet=per-trip);
+> routing costing audit: eco/fewestStops were no-ops, now top_speed=105 /
+> maneuver_penalty=30, avoidances clamp LAST; onboarding requests location
+> permission at END of onboarding (was mid-navigation = dropped dialog =
+> "restart to get prompt" bug) + recenter button re-asks and invalidates the
+> stream; creator builds have ALL archetypes unlocked in the picker;
+> Settings → Avatar section (preview + count + opens picker); zoom-mode
+> labels renamed "Zoomed out"/"Close up" (internals untouched).
+>
+> **PENDING DECISIONS (Ruben was answering when session ended):**
+> 1. Self-hosted Valhalla approach (full guide + app config vs config-only
+>    vs hold). App-side needed either way: valhallaApiUrl → env-configurable,
+>    raise valhallaExcludePerimeterBudgetMeters + drop halving floor when
+>    self-hosted. This unlocks "avoid EVERY camera" — the core feature at
+>    full strength, plus origin/destination privacy.
+> 2. Voice commands: YAY given. Stage 1 = one mic tap, parse "navigate to X"
+>    from existing speech_to_text, geocode top hit, auto-route + TTS confirm.
+>    Stage 2 = "Migo" wake word via Picovoice Porcupine (on-device, free
+>    tier, needs Ruben account + key). Whisper NOT needed/appropriate.
+>
+> **UNVERIFIED:** egg-hatch ceremony live; hazard pin on-map visibility
+> (check hazard layer toggle first); MapLibre real-drive behavior;
+> avoidance retest post-alternates.
+
+> **SESSION UPDATE 4 (2026-07-03): reliability pivot + provider config.**
+> Ruben's directive, now a DESIGN PRINCIPLE: *reliability is a feature
+> privacy depends on — privacy second to functionality. California-first
+> accuracy matters; Europe-first does not.*
+>
+> - **Routing → managed provider (config swap):** valhallaApiUrl +
+>   valhallaApiKey now come from env.json (VALHALLA_URL / VALHALLA_API_KEY).
+>   Pre-pointed at Stadia's hosted Valhalla (https://api.stadiamaps.com/route/v1
+>   — SAME Valhalla API, all exclude_polygons/alternates logic intact).
+>   Ruben has a Stadia account (free tier: 200k credits/mo, NON-COMMERCIAL
+>   only — fine pre-revenue). AWAITING: his key pasted into env.json + first
+>   route test. If free tier gates the route endpoint, error surfacing will
+>   say so. DO NOT swap to OSRM (no exclusions = kills ALPR avoidance);
+>   OpenCage won't fix OSM address gaps (it's OSM under the hood).
+> - **US CENSUS GEOCODER FALLBACK (big win):** when a typed house number
+>   resolves nowhere in OSM, the Census TIGER geocoder (free, keyless,
+>   public domain, every US address by block range) resolves it — fixed
+>   "2229 S Mountain Ave Ontario" which OSM simply lacks. _censusSearch in
+>   geocoding_service; results labeled "(US Census)".
+> - Geocoding step-2 IF addresses still go missing after a test day: RADAR
+>   (US-first autocomplete, ~100k/mo free) as primary. Smarty evaluated:
+>   best US accuracy but 250 free lookups/mo = non-starter for autocomplete;
+>   noted as future paid verification step.
+> - **GL map fixes from road test:** avatar iconSize 1.0→1.25; camera CHASE
+>   fix (avatar was outrunning the animating camera off-screen: target now
+>   leads by speed×2s+50m, animation 600ms); follow-pause now on DRAG only
+>   (onPointerMove — incidental taps were silently killing follow).
+> - **Long-press map → save EXACT spot** (alley parking etc.) via the save
+>   sheet; hint in empty saved-chips card. No "Save here" chip (space).
+> - **Mission statement**: Settings → About → "Why Migo exists" — 4th
+>   Amendment, "privacy doesn't make you a criminal", "Drive free."
+> - **OPEN BUG — avatar picker "cannot select":** diagnostic debugPrint added
+>   ('[avatar] picker: creatorMode=... unlocked=... selected=...').
+>   PENDING Ruben's answer: are picker cells COLORED (creatorMode true,
+>   selection plumbing bug) or PADLOCKED (CREATOR_MODE define not reaching
+>   build)? Egg-hides-selection ordering already fixed in both render paths.
+> - Egg got visible fracture lines. Avatar PNG spec for Ruben's ComfyUI art:
+>   192×240 (or 384×480) transparent, base at ~90% height; two-layer
+>   (vehicle + rider) enables auto-bob; drop in assets/avatars/, then wire
+>   an asset-override in the avatar pipeline (NOT yet implemented).
+
 These are the three things we were stuck on. Priority order is roughly 1 → 3.
 
 ### PROBLEM 1 — ALPR avoidance routing "dies" ⚠️ (highest priority)

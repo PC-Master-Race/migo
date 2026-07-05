@@ -218,6 +218,23 @@ class GeocodingService {
       }
     }
 
+    // CENSUS FALLBACK: if the user typed a house number and nothing above
+    // resolved it, ask the US Census geocoder — TIGER address ranges know
+    // essentially every US address, including the many OSM is missing
+    // (e.g. "2229 S Mountain Ave, Ontario" — real place, absent from OSM).
+    if (numberTokens.isNotEmpty &&
+        wordTokens.isNotEmpty &&
+        !merged.any(hasNumbers)) {
+      final GeocodingResult? census = await _censusSearch(q);
+      if (census != null) {
+        debugPrint('[geocode] census resolved "${census.shortName}"');
+        merged.insert(0, census);
+        if (merged.length > nominatimMaxResults) {
+          merged.removeRange(nominatimMaxResults, merged.length);
+        }
+      }
+    }
+
     // Final ordering: results matching the typed HOUSE NUMBER outrank ones
     // that only match the street; within each group, nearest first.
     if (userPosition != null) _sortByDistance(merged, userPosition);
@@ -230,6 +247,54 @@ class GeocodingService {
     }
     return merged;
   }
+
+  /// US Census geocoder lookup — returns the best TIGER address-range match,
+  /// or null. Only called when OSM couldn't resolve a typed house number.
+  Future<GeocodingResult?> _censusSearch(String query) async {
+    final Uri uri = Uri.parse(censusGeocoderUrl).replace(
+      queryParameters: <String, String>{
+        'address': query,
+        'benchmark': 'Public_AR_Current',
+        'format': 'json',
+      },
+    );
+    try {
+      final http.Response response =
+          await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return null;
+      final Map<String, dynamic> body =
+          jsonDecode(response.body) as Map<String, dynamic>;
+      final List<dynamic> matches =
+          ((body['result'] as Map<String, dynamic>?)?['addressMatches']
+                  as List<dynamic>?) ??
+              <dynamic>[];
+      if (matches.isEmpty) return null;
+      final Map<String, dynamic> m = matches.first as Map<String, dynamic>;
+      final Map<String, dynamic> coords =
+          m['coordinates'] as Map<String, dynamic>;
+      final String matched =
+          (m['matchedAddress'] as String?) ?? query.toUpperCase();
+      final String pretty = _titleCase(matched);
+      return GeocodingResult(
+        displayName: '$pretty (US Census)',
+        shortName: pretty,
+        position: LatLng(
+          (coords['y'] as num).toDouble(),
+          (coords['x'] as num).toDouble(),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// "2229 S MOUNTAIN AVE, ONTARIO, CA" → "2229 S Mountain Ave, Ontario, Ca".
+  String _titleCase(String s) => s
+      .toLowerCase()
+      .split(' ')
+      .map((String w) =>
+          w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+      .join(' ');
 
   /// Lowercase word tokens: letters+digits only, split on everything else.
   List<String> _tokenize(String s) => s

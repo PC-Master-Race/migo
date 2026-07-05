@@ -57,7 +57,7 @@ class _MysteryEggWidgetState extends State<MysteryEggWidget>
         animation: _rock,
         builder: (BuildContext context, Widget? child) {
           return CustomPaint(
-            painter: _MysteryEggPainter(
+            painter: MysteryEggPainter(
               rock: widget.animate ? _rock.value : 0.0,
             ),
           );
@@ -67,8 +67,9 @@ class _MysteryEggWidgetState extends State<MysteryEggWidget>
   }
 }
 
-class _MysteryEggPainter extends CustomPainter {
-  const _MysteryEggPainter({required this.rock});
+/// Public so the MapLibre view can render the egg to a symbol image too.
+class MysteryEggPainter extends CustomPainter {
+  const MysteryEggPainter({required this.rock});
 
   /// Animation phase 0..1 — drives the rocking tilt.
   final double rock;
@@ -155,6 +156,31 @@ class _MysteryEggPainter extends CustomPainter {
           eyeR * 0.45, Paint()..color = const Color(0xFF2A2233));
     }
 
+    // Hairline fracture lines spreading from the hole — reads as "hatching"
+    // even at small map sizes.
+    final Paint crackLine = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.2, w * 0.014)
+      ..strokeCap = StrokeCap.round
+      ..color = const Color(0xFF3A3344).withValues(alpha: 0.75);
+    final Path fracture1 = Path()
+      ..moveTo(cx + w * 0.10, cy - h * 0.005)
+      ..lineTo(cx + w * 0.165, cy - h * 0.03)
+      ..lineTo(cx + w * 0.21, cy - h * 0.012)
+      ..lineTo(cx + w * 0.265, cy - h * 0.04);
+    canvas.drawPath(fracture1, crackLine);
+    final Path fracture2 = Path()
+      ..moveTo(cx - w * 0.06, cy + h * 0.06)
+      ..lineTo(cx - w * 0.09, cy + h * 0.095)
+      ..lineTo(cx - w * 0.055, cy + h * 0.12);
+    canvas.drawPath(fracture2, crackLine);
+    // A lone crack on the far side of the shell — it's coming apart soon.
+    final Path fracture3 = Path()
+      ..moveTo(w * 0.68, h * 0.28)
+      ..lineTo(w * 0.72, h * 0.315)
+      ..lineTo(w * 0.69, h * 0.35);
+    canvas.drawPath(fracture3, crackLine);
+
     // --- Wheels (a car in the making) ---
     final Paint tire = Paint()..color = const Color(0xFF3A3A44);
     final Paint hub = Paint()..color = const Color(0xFF8B8B98);
@@ -182,5 +208,5 @@ class _MysteryEggPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_MysteryEggPainter old) => old.rock != rock;
+  bool shouldRepaint(MysteryEggPainter old) => old.rock != rock;
 }

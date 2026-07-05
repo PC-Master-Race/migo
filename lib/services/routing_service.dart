@@ -156,7 +156,7 @@ class RoutingService {
       try {
         final http.Response response = await http
             .post(
-              Uri.parse(valhallaApiUrl),
+              _routeUri(),
               headers: <String, String>{
                 'Content-Type': 'application/json',
                 'User-Agent': osmUserAgent,
@@ -183,11 +183,22 @@ class RoutingService {
         '($lastError). Try again in a moment.');
   }
 
+  /// The routing endpoint with the provider API key attached when one is
+  /// configured (managed providers like Stadia; the free endpoint needs none).
+  Uri _routeUri([Map<String, String> extraParams = const <String, String>{}]) {
+    final Uri base = Uri.parse(valhallaApiUrl);
+    return base.replace(queryParameters: <String, String>{
+      ...base.queryParameters,
+      if (valhallaApiKey.isNotEmpty) 'api_key': valhallaApiKey,
+      ...extraParams,
+    });
+  }
+
   /// Sends the route request as GET /route?json=<encoded>. Returns null when
   /// the payload is too large for a URL or the request throws.
   Future<http.Response?> _tryGet(Map<String, dynamic> body) async {
-    final Uri uri = Uri.parse(valhallaApiUrl)
-        .replace(queryParameters: <String, String>{'json': jsonEncode(body)});
+    final Uri uri =
+        _routeUri(<String, String>{'json': jsonEncode(body)});
     if (uri.toString().length > 7500) {
       debugPrint('[routing] GET fallback skipped — payload too large for URL');
       return null;

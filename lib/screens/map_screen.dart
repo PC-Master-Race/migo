@@ -188,6 +188,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   void _recenterOnUser() {
+    // GL map: signal the MapLibre view — it resumes following and snaps.
+    if (useMapLibre) {
+      ref.read(glRecenterSignalProvider.notifier).state++;
+      return;
+    }
     setState(() => _isFollowingUser = true);
     final Position? latest = ref.read(positionStreamProvider).valueOrNull;
     if (latest != null) {
@@ -693,8 +698,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             child: const BravosHudChip(),
           ),
 
-          // Recenter button (only when not following user).
-          if (!_isFollowingUser)
+          // Recenter button (only when not following user). The GL map
+          // tracks its own follow state via glFollowingProvider.
+          if (!(useMapLibre
+              ? ref.watch(glFollowingProvider)
+              : _isFollowingUser))
             Positioned(
               bottom: routeBarH + 32,
               right: 16,
@@ -746,7 +754,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   ) {
     // MAPLIBRE MIGRATION: the GL map manages its own camera, route layers,
     // and puck. Overlay UI (banner, bars, FABs) is map-agnostic and stays.
-    if (useMapLibre) return const MigoMapLibreView();
+    if (useMapLibre) {
+      return MigoMapLibreView(
+        // Long-press any spot → save it exactly (no geocoding involved).
+        onLongPress: (LatLng point) => _showSaveLocationSheet(
+          context,
+          GeocodingResult(
+            displayName: 'Dropped pin (exact spot)',
+            shortName: 'Dropped pin',
+            position: point,
+          ),
+        ),
+      );
+    }
 
     return FlutterMap(
       mapController: _mapController,
@@ -1221,6 +1241,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   /// Saved-location chips (or a hint card if nothing is saved yet).
+  /// (Saving your EXACT current spot: long-press the map — kept off this
+  /// row on purpose; screen space here is too valuable.)
   Widget _buildSavedLocationChips() {
     final List<SavedLocation> saved = ref.watch(savedLocationsProvider);
 
@@ -1239,7 +1261,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Search for a place, then tap the bookmark to save Home, Work, or Favorites here.',
+                  'Search a place and tap the bookmark — or long-press the map to save any exact spot.',
                   style: TextStyle(fontSize: 12, color: _panelInk(context)),
                 ),
               ),

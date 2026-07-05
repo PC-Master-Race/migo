@@ -331,8 +331,20 @@ const double userMarkerSize = 26.0;
 // TODO: [self-host Valhalla for production to eliminate third-party network
 // dependency] [deferred: needs server budget decision]
 
-/// Public Valhalla routing endpoint (OSM-hosted, no API key required).
-const String valhallaApiUrl = 'https://valhalla1.openstreetmap.de/route';
+/// Valhalla routing endpoint — CONFIGURABLE via env.json so the free
+/// community server can be swapped for a managed provider without touching
+/// code. Same Valhalla API either way (exclude_polygons, alternates — all
+/// avoidance logic survives).
+///   Free default:  https://valhalla1.openstreetmap.de/route  (no key; the
+///                  community box that 502s under load)
+///   Managed:       https://api.stadiamaps.com/route/v1  + VALHALLA_API_KEY
+///                  (Stadia's hosted Valhalla — SLA-backed uptime)
+const String valhallaApiUrl = String.fromEnvironment('VALHALLA_URL',
+    defaultValue: 'https://valhalla1.openstreetmap.de/route');
+
+/// API key for managed Valhalla providers (appended as ?api_key=...).
+/// Empty = none needed (free community endpoint).
+const String valhallaApiKey = String.fromEnvironment('VALHALLA_API_KEY');
 
 /// Extra attempts after a transient (5xx/network) Valhalla failure. Kept LOW
 /// deliberately: each attempt may fire a POST + a GET, and hammering the free
@@ -344,6 +356,15 @@ const Duration valhallaRetryDelay = Duration(milliseconds: 800);
 
 /// Nominatim geocoding endpoint (OSM-hosted, no API key, no tracking).
 const String nominatimSearchUrl = 'https://nominatim.openstreetmap.org/search';
+
+/// US Census Bureau geocoder — the ADDRESS fallback of last resort. Free,
+/// keyless, public-domain TIGER data: covers essentially every US street
+/// address via block ranges, including the many house numbers OSM lacks.
+/// Privacy note: like Photon/Nominatim, the typed query goes to a third
+/// party (here, a government server). TODO: [proxy or self-host geocoding
+/// for production so typed addresses never leave Migo infrastructure]
+const String censusGeocoderUrl =
+    'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress';
 
 /// Photon geocoding endpoint — POI search with distance-biased ranking.
 /// Powered by OSM data, run by Komoot. No API key, no tracking.

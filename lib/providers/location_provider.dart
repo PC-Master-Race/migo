@@ -39,6 +39,19 @@ final StateProvider<LatLng?> displayedPositionProvider =
 final StateProvider<double?> displayedHeadingProvider =
     StateProvider<double?>((Ref ref) => null);
 
+// --- MAPLIBRE CAMERA PARITY (Phase 5) ---
+// The GL map manages its own camera, but the recenter button lives in
+// map_screen's overlay — these two providers bridge them.
+
+/// Whether the GL camera is following the user. Set false when the user
+/// pans/touches the map; map_screen shows the recenter button off this.
+final StateProvider<bool> glFollowingProvider =
+    StateProvider<bool>((Ref ref) => true);
+
+/// Bumped by the recenter button — the GL view listens and snaps back.
+final StateProvider<int> glRecenterSignalProvider =
+    StateProvider<int>((Ref ref) => 0);
+
 /// Current display speed in whole mph, jitter-suppressed. 0 when stationary
 /// or before the first GPS fix.
 final Provider<int> displaySpeedMphProvider = Provider<int>((Ref ref) {
