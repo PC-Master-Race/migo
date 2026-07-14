@@ -1,8 +1,10 @@
 # Migo — Project Handoff
 
-> Purpose of this doc: get a new AI session productive on the **Migo** app fast,
-> and hand off three specific problems we're stuck on. Read this top to bottom
-> once, then use the "Open Problems" section as the work queue.
+> Purpose of this doc: get a new AI session productive on the **Migo** app fast.
+> **START HERE:** read the "CURRENT STATE / WHAT TO DO NEXT" block inside
+> SESSION UPDATE 5 (in section 6) first — it's the fastest path to productive.
+> Then skim sections 1-5 for architecture, and the session updates for history.
+> This doc is model-agnostic (the project has spanned multiple Claude models).
 
 ---
 
@@ -332,6 +334,88 @@ hardcoding anything.
 >   192×240 (or 384×480) transparent, base at ~90% height; two-layer
 >   (vehicle + rider) enables auto-bob; drop in assets/avatars/, then wire
 >   an asset-override in the avatar pipeline (NOT yet implemented).
+
+> **SESSION UPDATE 5 (2026-07-03, later): ROUTING FIXED + GL PARITY.**
+> This is the "make everything actually work" session. Note: model changed
+> mid-project (Fable → Opus) — this doc is model-agnostic; whoever reads it
+> next has the full story. Git remote had a parallel session's commit
+> (someone else pushing to main); coordinate with `git pull --rebase origin
+> main` before pushing.
+>
+> - **✅ MANAGED VALHALLA VERIFIED WORKING.** Ruben's Stadia key is in
+>   env.json (VALHALLA_API_KEY) pointing at https://api.stadiamaps.com/route/v1.
+>   A live test route (Upland→West Covina) returned a full valid route —
+>   "status_message: Found route between points". The free-tier 502 hell is
+>   OVER. `_routeUri()` in routing_service appends ?api_key= when a key is
+>   set. NOTE: Stadia defaults to KILOMETERS; our request body forces
+>   directions_options.units=miles so the parser (which expects miles) is
+>   correct — leave that in.
+> - **✅ CLUSTERED ALPR EXCLUSION POLYGONS (Ruben's idea, implemented).**
+>   Instead of one octagon per camera (N×~919 m perimeter → Valhalla rejects
+>   past ~10), cameras within alprClusterDistanceMeters (90 m ≈ 100 yd) merge
+>   into ONE padded bounding box; lone cameras keep their octagon.
+>   `_clusteredExcludePolygons` + `_clusterBox` in routing_service.
+>   Selection cap raised (valhallaExcludePerimeterBudgetMeters 9500→45000)
+>   since clustering compresses; halving-retry still the safety net.
+>   `[routing] N cameras → M polygons after clustering` logs the compression.
+>   FULL avoidance pipeline now: alternates:2 → local camera scoring → pick
+>   cleanest (often 0 exclusions) → else clustered exclusions → halving retry,
+>   all on reliable Stadia. STRONGEST it has ever been; still needs the final
+>   on-road "Avoiding N zones" confirmation.
+> - **✅ MAPLIBRE PHASE 4 + 5 DONE (GL map at feature parity):**
+>   - All overlay markers render as GL symbols (painted offscreen → PNG →
+>     addImage): ALPR (plum), all 7 hazard types (per-type icon via feature
+>     'icon' property, one layer), gas (tap → price sheet), POIs (icon +
+>     name label, zoom-gated at 14), destination = coral flag pin.
+>     `_addPinImage` bakes them; `_syncOverlays` pushes GeoJSON honoring
+>     layer toggles; `_onMapClick` queries rendered features for taps.
+>   - Avatar is a real symbol now (Tux/egg/archetype, same rules as
+>     UserLocationMarker) with a BAKED 10-FRAME BOB CYCLE cycled by a 110ms
+>     timer (GL can't run CustomPainter per frame — flip-book trick).
+>     iconSize 1.25. Egg-hides-selection bug fixed (selectedArchetype checked
+>     before egg in BOTH paths).
+>   - Camera parity: glFollowingProvider (drag pauses follow via
+>     onPointerMove — taps don't), glRecenterSignalProvider (recenter button
+>     bumps it → GL snaps back), onCameraIdle syncs currentZoomProvider.
+>   - Chase fix: camera targets a point AHEAD (speed×2s+50m) so the avatar
+>     rides lower-third and can't outrun the animation.
+> - **US CENSUS FALLBACK confirmed fixing real addresses** (2229 S Mountain
+>   Ave Ontario). Geocoding stack: Photon (autocomplete) → Nominatim
+>   (compose/resolve) → Census (TIGER safety net). Radar is the paid step-2
+>   if still weak. Geocodio noted (US-only, county data, good resolver).
+> - **Long-press GL map → save exact spot** wired (onLongPress →
+>   MigoMapLibreView → save sheet).
+>
+> **=== CURRENT STATE / WHAT TO DO NEXT (read this first) ===**
+> - **DEFAULT MAP:** USE_MAPLIBRE=true in Ruben's env.json. The GL (tilted)
+>   map has full marker + camera parity now. Once Ruben confirms a clean
+>   drive, RETIRE the flutter_map path (it's the legacy fallback; both still
+>   compile). flutter_map controller calls are all `useMapLibre`-guarded.
+> - **env.json keys (git-ignored):** SUPABASE_URL/KEY, MAPTILER_API_KEY,
+>   VALHALLA_URL (Stadia), VALHALLA_API_KEY (Stadia), CREATOR_MODE=true,
+>   USE_MAPLIBRE=true. A fresh clone needs all of these.
+> - **MIGRATIONS to run in Supabase SQL editor (idempotent):**
+>   migration_alpr_import.sql (done long ago), migration_avatar_pool.sql
+>   (adds unlocked_archetypes + selected_archetype — REQUIRED or profile
+>   saves fail → coral-dot fallback avatar).
+> - **OPEN/UNVERIFIED:**
+>   1. Avatar picker "cannot select" — diagnostic `[avatar] picker:` line
+>      added; need Ruben's report (colored cells = plumbing bug; padlocked =
+>      CREATOR_MODE not reaching build). Egg-override already fixed.
+>   2. Final on-road avoidance confirmation ("Avoiding N zones" / "Route is
+>      clear"). Everything's in place; just needs the drive.
+>   3. Real-drive feel of tilt/chase/heading-up at speed.
+> - **NOT STARTED (agreed roadmap):**
+>   - Voice commands Stage 1: one mic tap → parse "navigate to X" from
+>     existing speech_to_text → geocode top hit → auto-route + TTS confirm.
+>     Stage 2 = "Migo" wake word via Picovoice Porcupine (on-device, free
+>     tier, needs Ruben's key). Whisper NOT appropriate.
+>   - Avatar PNG asset override (Ruben making art in ComfyUI; spec above).
+>   - Self-hosted Valhalla + Pelias/OpenAddresses geocoder = the privacy
+>     endgame (unlimited exclusions, no third party, rooftop CA accuracy).
+>     Deferred; Stadia bought the uptime for now.
+>   - HANDOFF NOTE: this file (HANDOFF.md) is the canonical project handoff
+>     regardless of which Claude model is driving.
 
 These are the three things we were stuck on. Priority order is roughly 1 → 3.
 
