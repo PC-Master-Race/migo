@@ -465,9 +465,12 @@ const int alprExcludePolygonVertices = 8;
 // gets the request rejected with HTTP 400 → "routing dies". So we compute a
 // baseline route first and spend the budget ONLY on cameras actually near it.
 
-/// Perimeter budget (meters) we allow ourselves per request. Kept under the
-/// server's 10,000 m limit with a safety margin.
-const double valhallaExcludePerimeterBudgetMeters = 9500.0;
+/// How many cameras we SELECT as near-route before clustering. This is now a
+/// generous cap (not a hard perimeter budget) because clustering collapses
+/// dense selections into few polygons, and the halving-retry catches any
+/// request that still overflows. Measured as an equivalent octagon-perimeter
+/// budget so selectAlprExclusions' math is unchanged — just roomier.
+const double valhallaExcludePerimeterBudgetMeters = 45000.0;
 
 /// Only cameras within this distance (meters) of the candidate route become
 /// exclusion polygons — cameras elsewhere in the bbox can't affect the drive.
@@ -476,6 +479,13 @@ const double alprAvoidCorridorMeters = 250.0;
 /// Cameras closer than this (meters) to an already-selected camera are
 /// considered covered by its exclusion circle and skipped (cluster merge).
 const double alprAvoidMergeMeters = 120.0;
+
+/// Cameras within this distance (meters) of each other are merged into ONE
+/// exclusion polygon instead of one-octagon-each (Ruben's idea). ~90 m ≈
+/// 100 yards. A cluster of nearby cameras is really one obstacle — sending a
+/// single box around it slashes polygon count AND total perimeter, so
+/// Valhalla is far less likely to reject the request.
+const double alprClusterDistanceMeters = 90.0;
 
 // --- TTS ---
 // ElevenLabs provides high-quality voiced navigation instructions. The app

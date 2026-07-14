@@ -239,13 +239,15 @@ class RoutingService {
     // Costing options per preference toggles.
     final Map<String, dynamic> costingOptions = _buildCostingOptions(preferences);
 
-    // ALPR exclusion polygons: a circle approximated as an N-gon polygon per
-    // camera location. Valhalla excludes any route that enters these polygons.
+    // ALPR exclusion polygons. Rather than one octagon per camera (N cameras
+    // = N polygons = N×~919 m of perimeter, which Valhalla rejects past ~10),
+    // we CLUSTER nearby cameras (within alprClusterDistanceMeters) into a
+    // single padded box each. A dense camera corridor collapses from dozens
+    // of octagons to a handful of boxes — same coverage, a fraction of the
+    // perimeter, far fewer rejections. (Ruben's insight.)
     final List<Map<String, dynamic>> excludePolygons =
         preferences.avoidAlprCameras
-            ? alprLocations
-                .map((LatLng loc) => _circlePolygon(loc, alprExcludeRadiusMeters))
-                .toList()
+            ? _clusteredExcludePolygons(alprLocations)
             : <Map<String, dynamic>>[];
 
     return <String, dynamic>{
@@ -453,6 +455,84 @@ class RoutingService {
         center.latitude + latDelta * math.sin(angle),
       ]);
     }
+    return <String, dynamic>{'coordinates': <dynamic>[ring]};
+  }
+
+  // --- CLUSTERED EXCLUSION POLYGONS (Ruben's idea) ---
+  // Merge cameras within alprClusterDistanceMeters of one another into a
+  // single padded bounding box. One dense corridor of 30 cameras becomes a
+  // few boxes instead of 30 octagons — massively less perimeter, so Valhalla
+  // accepts requests it used to reject.
+
+  List<Map<String, dynamic>> _clusteredExcludePolygons(List<LatLng> cameras) {
+    if (cameras.isEmpty) return <Map<String, dynamic>>[];
+
+    // Single-linkage clustering: grow each cluster to include any camera
+    // within alprClusterDistanceMeters of anything already in it.
+    const Distance dist = Distance();
+    final List<bool> used = List<bool>.filled(cameras.length, false);
+    final List<List<LatLng>> clusters = <List<LatLng>>[];
+
+    for (int i = 0; i < cameras.length; i++) {
+      if (used[i]) continue;
+      final List<LatLng> cluster = <LatLng>[cameras[i]];
+      used[i] = true;
+      // BFS over the cluster's growing frontier.
+      for (int scan = 0; scan < cluster.length; scan++) {
+        final LatLng c = cluster[scan];
+        for (int j = 0; j < cameras.length; j++) {
+          if (used[j]) continue;
+          if (dist.as(LengthUnit.Meter, c, cameras[j]) <=
+              alprClusterDistanceMeters) {
+            used[j] = true;
+            cluster.add(cameras[j]);
+          }
+        }
+      }
+      clusters.add(cluster);
+    }
+
+    // Each cluster → one padded bounding-box polygon. A lone camera still
+    // gets its round octagon (tighter, avoids over-blocking a single street).
+    final List<Map<String, dynamic>> polys = <Map<String, dynamic>>[];
+    for (final List<LatLng> cluster in clusters) {
+      if (cluster.length == 1) {
+        polys.add(_circlePolygon(cluster.first, alprExcludeRadiusMeters));
+      } else {
+        polys.add(_clusterBox(cluster, alprExcludeRadiusMeters));
+      }
+    }
+    debugPrint('[routing] ${cameras.length} cameras → ${clusters.length} '
+        'exclusion polygons after clustering');
+    return polys;
+  }
+
+  /// Padded axis-aligned bounding box around a cluster of cameras (rectangle
+  /// = 5 points, far cheaper than N octagons).
+  Map<String, dynamic> _clusterBox(List<LatLng> cluster, double padMeters) {
+    double minLat = cluster.first.latitude, maxLat = cluster.first.latitude;
+    double minLon = cluster.first.longitude, maxLon = cluster.first.longitude;
+    for (final LatLng c in cluster) {
+      minLat = math.min(minLat, c.latitude);
+      maxLat = math.max(maxLat, c.latitude);
+      minLon = math.min(minLon, c.longitude);
+      maxLon = math.max(maxLon, c.longitude);
+    }
+    final double latPad = padMeters / 111000.0;
+    final double midLat = (minLat + maxLat) / 2;
+    final double lonPad =
+        padMeters / (111000.0 * math.cos(midLat * math.pi / 180));
+    minLat -= latPad;
+    maxLat += latPad;
+    minLon -= lonPad;
+    maxLon += lonPad;
+    final List<List<double>> ring = <List<double>>[
+      <double>[minLon, minLat],
+      <double>[maxLon, minLat],
+      <double>[maxLon, maxLat],
+      <double>[minLon, maxLat],
+      <double>[minLon, minLat], // close the ring
+    ];
     return <String, dynamic>{'coordinates': <dynamic>[ring]};
   }
 }
