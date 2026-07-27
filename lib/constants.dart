@@ -42,6 +42,25 @@ const String osmUserAgent =
 /// stations). The main public instance; can be swapped for a self-hosted one.
 const String overpassApiUrl = 'https://overpass-api.de/api/interpreter';
 
+/// Overpass MIRRORS, tried in order. The main instance rate-limits hard and
+/// returns HTTP 429 ("too many requests") during busy periods — a big camera
+/// import is exactly the kind of query it throttles. These are the
+/// community's public mirrors; falling through them (with backoff) turns a
+/// hard failure into a slightly slower success.
+const List<String> overpassMirrors = <String>[
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.osm.jp/api/interpreter',
+];
+
+/// Attempts per mirror before moving to the next one.
+const int overpassAttemptsPerMirror = 2;
+
+/// Base backoff between Overpass attempts (multiplied by attempt number).
+/// Overpass asks clients to slow down rather than hammer — be polite.
+const Duration overpassRetryDelay = Duration(seconds: 3);
+
 // --- ZOOM MODE THRESHOLDS ---
 // Three visual modes per PRODUCT_BRIEF: cartoon (zoomed out), hybrid (mid),
 // street/satellite (deep zoom). Values are flutter_map zoom levels.

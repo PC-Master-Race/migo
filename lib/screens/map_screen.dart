@@ -21,6 +21,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:vector_map_tiles/vector_map_tiles.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../constants.dart';
 import '../models/route_model.dart';
@@ -136,6 +137,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// Last point the follow-camera moved to — skips no-op micro-moves.
   LatLng? _lastCameraTarget;
 
+  /// Whether we're currently holding the screen-on wakelock (navigation).
+  bool _wakelockHeld = false;
+
   /// The place the user last chose as a destination, kept so tapping the
   /// destination pin can offer to save it (Home/Work/Favorite).
   GeocodingResult? _selectedDestination;
@@ -163,6 +167,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void dispose() {
     _searchController.dispose();
     _searchFocus.dispose();
+    // Never leave the screen pinned on after the map is gone.
+    if (_wakelockHeld) {
+      WakelockPlus.disable().catchError(
+          (Object e) => debugPrint('[nav] wakelock release failed: $e'));
+    }
     super.dispose();
   }
 
@@ -604,6 +613,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // recalculates. Tying it to navState made the camera snap out of nav-zoom
     // (18→17→18) on every recalc — the "flash" half of the loop bug.
     final bool nowNavigating = ref.watch(destinationProvider) != null;
+    // SCREEN WAKELOCK: hold the screen on for the whole trip, release the
+    // moment navigation ends. Scoped to navigation on purpose — locking the
+    // screen on for the entire app would cook the battery in someone's
+    // pocket. Fire-and-forget; a failed wakelock must never break the map.
+    if (nowNavigating != _wakelockHeld) {
+      _wakelockHeld = nowNavigating;
+      WakelockPlus.toggle(enable: nowNavigating).catchError(
+          (Object e) => debugPrint('[nav] wakelock toggle failed: $e'));
+    }
     if (nowNavigating && !_isNavigating) {
       _isNavigating = true;
       // MapLibre handles its own nav-zoom/tilt transitions.

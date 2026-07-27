@@ -245,11 +245,11 @@ class RoutingService {
     // single padded box each. A dense camera corridor collapses from dozens
     // of octagons to a handful of boxes — same coverage, a fraction of the
     // perimeter, far fewer rejections. (Ruben's insight.)
-    final List<Map<String, dynamic>> excludePolygons =
+    final List<List<List<double>>> excludePolygons =
         preferences.avoidAlprCameras
             ? _clusteredExcludePolygons(alprLocations,
                 origin: origin, destination: destination)
-            : <Map<String, dynamic>>[];
+            : <List<List<double>>>[];
 
     return <String, dynamic>{
       'locations': <Map<String, dynamic>>[
@@ -440,7 +440,15 @@ class RoutingService {
   // Valhalla exclude_polygons format: a list of polygon rings, each being a
   // list of [lon, lat] coordinate pairs. We approximate a circle as an N-gon.
 
-  Map<String, dynamic> _circlePolygon(LatLng center, double radiusMeters) {
+  /// Returns a RING: `[[lon,lat], [lon,lat], …]`.
+  ///
+  /// FORMAT (this was the long-standing avoidance bug): Valhalla's
+  /// `exclude_polygons` is a bare array of rings —
+  /// `"exclude_polygons":[[[lon,lat],[lon,lat],…]]`. We used to wrap each
+  /// ring in a GeoJSON-ish `{"coordinates":[ring]}` object, which Valhalla
+  /// rejects (400) — so EVERY avoidance attempt failed, on every server,
+  /// no matter how few polygons we sent. Keep this a bare ring.
+  List<List<double>> _circlePolygon(LatLng center, double radiusMeters) {
     const int n = alprExcludePolygonVertices;
     // Convert radius from meters to approximate degrees.
     // 1 degree of latitude ≈ 111,000 m. Longitude degree shrinks with cosine.
@@ -456,7 +464,7 @@ class RoutingService {
         center.latitude + latDelta * math.sin(angle),
       ]);
     }
-    return <String, dynamic>{'coordinates': <dynamic>[ring]};
+    return ring;
   }
 
   // --- CLUSTERED EXCLUSION POLYGONS (Ruben's idea, grid edition) ---
@@ -470,12 +478,12 @@ class RoutingService {
   // origin. A grid cell is fixed-size, so a zone is always local, and the
   // span cap below is belt-and-braces on top of that.
 
-  List<Map<String, dynamic>> _clusteredExcludePolygons(
+  List<List<List<double>>> _clusteredExcludePolygons(
     List<LatLng> cameras, {
     required LatLng origin,
     required LatLng destination,
   }) {
-    if (cameras.isEmpty) return <Map<String, dynamic>>[];
+    if (cameras.isEmpty) return <List<List<double>>>[];
     const Distance dist = Distance();
 
     // 1. Drop cameras hugging the endpoints. A zone over the origin or
@@ -490,7 +498,7 @@ class RoutingService {
     if (routable.isEmpty) {
       debugPrint('[routing] all ${cameras.length} cameras sit on the '
           'endpoints — no exclusions (would make the route impossible)');
-      return <Map<String, dynamic>>[];
+      return <List<List<double>>>[];
     }
 
     // 2. Bucket into fixed grid cells (~alprClusterCellMeters on a side).
@@ -519,10 +527,10 @@ class RoutingService {
     // WILL pass those cameras — they're unavoidable by definition, you have
     // to drive out of your own neighbourhood. Getting a working route that
     // avoids every OTHER camera beats getting no route at all.
-    final List<Map<String, dynamic>> polys = <Map<String, dynamic>>[];
+    final List<List<List<double>>> polys = <List<List<double>>>[];
     int droppedForGeometry = 0;
     for (final List<LatLng> cluster in cells.values) {
-      final Map<String, dynamic> poly = cluster.length == 1
+      final List<List<double>> poly = cluster.length == 1
           ? _circlePolygon(cluster.first, alprExcludeRadiusMeters)
           : _clusterBox(cluster, alprClusterPadMeters);
       if (_zoneBlocksEndpoint(poly, origin, destination)) {
@@ -545,18 +553,14 @@ class RoutingService {
   /// their destination past one unavoidable camera is better served than a
   /// driver staring at "route failed".
   bool _zoneBlocksEndpoint(
-      Map<String, dynamic> poly, LatLng origin, LatLng destination) {
-    final List<dynamic> rings = poly['coordinates'] as List<dynamic>;
-    if (rings.isEmpty) return false;
-    final List<dynamic> ring = rings.first as List<dynamic>;
+      List<List<double>> ring, LatLng origin, LatLng destination) {
     if (ring.isEmpty) return false;
 
     double minLat = double.infinity, maxLat = -double.infinity;
     double minLon = double.infinity, maxLon = -double.infinity;
-    for (final dynamic raw in ring) {
-      final List<dynamic> pt = raw as List<dynamic>;
-      final double lon = (pt[0] as num).toDouble();
-      final double lat = (pt[1] as num).toDouble();
+    for (final List<double> pt in ring) {
+      final double lon = pt[0];
+      final double lat = pt[1];
       minLat = math.min(minLat, lat);
       maxLat = math.max(maxLat, lat);
       minLon = math.min(minLon, lon);
@@ -586,7 +590,7 @@ class RoutingService {
   /// = 5 points, far cheaper than N octagons). Hard-clamped to
   /// [alprClusterMaxSpanMeters] so no single zone can ever blanket enough
   /// city to make the route impossible.
-  Map<String, dynamic> _clusterBox(List<LatLng> cluster, double padMeters) {
+  List<List<double>> _clusterBox(List<LatLng> cluster, double padMeters) {
     double minLat = cluster.first.latitude, maxLat = cluster.first.latitude;
     double minLon = cluster.first.longitude, maxLon = cluster.first.longitude;
     for (final LatLng c in cluster) {
@@ -625,7 +629,7 @@ class RoutingService {
       <double>[minLon, maxLat],
       <double>[minLon, minLat], // close the ring
     ];
-    return <String, dynamic>{'coordinates': <dynamic>[ring]};
+    return ring;
   }
 }
 

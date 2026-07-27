@@ -38,6 +38,12 @@ dependencies:
   # --- LOCATION ---
   geolocator: ^13.0.2
 
+  # --- SCREEN WAKELOCK ---
+  # Keeps the screen on while navigating (a nav app whose screen sleeps at
+  # 60 mph is useless). Screen-only wakelock — no CPU/background lock, and
+  # it needs no permissions.
+  wakelock_plus: ^1.6.1
+
   # --- BACKEND ---
   supabase_flutter: ^2.8.0
 

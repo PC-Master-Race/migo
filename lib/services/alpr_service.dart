@@ -14,6 +14,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
@@ -108,16 +109,45 @@ class AlprService {
     final String query = '[out:json][timeout:120];'
         'node["surveillance:type"="ALPR"]($minLat,$minLon,$maxLat,$maxLon);'
         'out;';
-    final http.Response response = await http
-          .post(
-            Uri.parse(overpassApiUrl),
-            headers: <String, String>{'User-Agent': osmUserAgent},
-            body: <String, String>{'data': query},
-          )
-          .timeout(const Duration(seconds: 60));
-      if (response.statusCode != 200) {
-        throw Exception('Overpass returned HTTP ${response.statusCode}');
+
+    // Overpass throttles hard: a region-sized camera import routinely draws
+    // HTTP 429 ("too many requests") from the main instance. Walk the mirror
+    // list with backoff instead of failing the whole import on one 429.
+    http.Response? response;
+    Object? lastError;
+    outer:
+    for (final String mirror in overpassMirrors) {
+      for (int attempt = 0; attempt < overpassAttemptsPerMirror; attempt++) {
+        if (attempt > 0) {
+          await Future<void>.delayed(overpassRetryDelay * attempt);
+        }
+        try {
+          final http.Response r = await http
+              .post(
+                Uri.parse(mirror),
+                headers: <String, String>{'User-Agent': osmUserAgent},
+                body: <String, String>{'data': query},
+              )
+              .timeout(const Duration(seconds: 90));
+          if (r.statusCode == 200) {
+            response = r;
+            break outer;
+          }
+          lastError = 'HTTP ${r.statusCode}';
+          debugPrint('[alpr] Overpass $mirror → ${r.statusCode}'
+              '${r.statusCode == 429 ? " (rate limited)" : ""}');
+          // 429/504 are "come back later" — move on to the next mirror.
+        } catch (e) {
+          lastError = e;
+          debugPrint('[alpr] Overpass $mirror failed: $e');
+        }
       }
+    }
+
+    if (response == null) {
+      throw Exception('All Overpass mirrors busy ($lastError). '
+          'They rate-limit big imports — wait a few minutes and retry.');
+    }
 
       final Map<String, dynamic> decoded =
           jsonDecode(response.body) as Map<String, dynamic>;
