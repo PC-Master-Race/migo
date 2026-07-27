@@ -480,12 +480,31 @@ const double alprAvoidCorridorMeters = 250.0;
 /// considered covered by its exclusion circle and skipped (cluster merge).
 const double alprAvoidMergeMeters = 120.0;
 
-/// Cameras within this distance (meters) of each other are merged into ONE
-/// exclusion polygon instead of one-octagon-each (Ruben's idea). ~90 m ≈
-/// 100 yards. A cluster of nearby cameras is really one obstacle — sending a
-/// single box around it slashes polygon count AND total perimeter, so
-/// Valhalla is far less likely to reject the request.
-const double alprClusterDistanceMeters = 90.0;
+/// Grid cell size (meters) for camera clustering. ~90 m ≈ 100 yards: every
+/// camera in the same cell becomes ONE exclusion zone (Ruben's idea).
+///
+/// GRID, not chain-linkage: the old single-linkage version let camera A pull
+/// in B, B pull in C... so a boulevard with cameras every 80 m collapsed into
+/// ONE cluster whose bounding box blanketed square miles of city — which
+/// blocks every viable road and makes Valhalla fail outright. A grid cell
+/// can never grow, so a zone is always local.
+const double alprClusterCellMeters = 90.0;
+
+/// Padding (meters) around a multi-camera cluster box. Smaller than the
+/// lone-camera radius because the box already spans the cameras — over-
+/// padding blocks parallel streets the router needs as escape routes.
+const double alprClusterPadMeters = 60.0;
+
+/// Hard cap (meters) on either dimension of a merged exclusion zone. No
+/// single polygon may blanket more than this, no matter how dense the
+/// cameras — a runaway zone breaks routing entirely.
+const double alprClusterMaxSpanMeters = 400.0;
+
+/// Exclusion zones within this distance (meters) of the route's origin or
+/// destination are DROPPED. You cannot avoid a camera outside your own house
+/// — and a zone covering an endpoint makes Valhalla return "no route" rather
+/// than a detour, which historically surfaced as "avoidance unavailable".
+const double alprExclusionEndpointClearanceMeters = 250.0;
 
 // --- TTS ---
 // ElevenLabs provides high-quality voiced navigation instructions. The app

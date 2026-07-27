@@ -241,13 +241,14 @@ class RoutingService {
 
     // ALPR exclusion polygons. Rather than one octagon per camera (N cameras
     // = N polygons = N×~919 m of perimeter, which Valhalla rejects past ~10),
-    // we CLUSTER nearby cameras (within alprClusterDistanceMeters) into a
+    // we CLUSTER cameras sharing a ~100-yard grid cell into a
     // single padded box each. A dense camera corridor collapses from dozens
     // of octagons to a handful of boxes — same coverage, a fraction of the
     // perimeter, far fewer rejections. (Ruben's insight.)
     final List<Map<String, dynamic>> excludePolygons =
         preferences.avoidAlprCameras
-            ? _clusteredExcludePolygons(alprLocations)
+            ? _clusteredExcludePolygons(alprLocations,
+                origin: origin, destination: destination)
             : <Map<String, dynamic>>[];
 
     return <String, dynamic>{
@@ -458,57 +459,133 @@ class RoutingService {
     return <String, dynamic>{'coordinates': <dynamic>[ring]};
   }
 
-  // --- CLUSTERED EXCLUSION POLYGONS (Ruben's idea) ---
-  // Merge cameras within alprClusterDistanceMeters of one another into a
-  // single padded bounding box. One dense corridor of 30 cameras becomes a
-  // few boxes instead of 30 octagons — massively less perimeter, so Valhalla
-  // accepts requests it used to reject.
+  // --- CLUSTERED EXCLUSION POLYGONS (Ruben's idea, grid edition) ---
+  // Every camera in the same ~100-yard grid cell becomes ONE exclusion zone.
+  // A dense corridor of 30 cameras ships as a handful of small boxes instead
+  // of 30 octagons: far less perimeter, far fewer Valhalla rejections.
+  //
+  // WHY A GRID AND NOT PROXIMITY CHAINING: chaining (A pulls B, B pulls C…)
+  // merged an entire boulevard into one cluster whose bounding box covered
+  // square miles — blocking every road including, often, the user's own
+  // origin. A grid cell is fixed-size, so a zone is always local, and the
+  // span cap below is belt-and-braces on top of that.
 
-  List<Map<String, dynamic>> _clusteredExcludePolygons(List<LatLng> cameras) {
+  List<Map<String, dynamic>> _clusteredExcludePolygons(
+    List<LatLng> cameras, {
+    required LatLng origin,
+    required LatLng destination,
+  }) {
     if (cameras.isEmpty) return <Map<String, dynamic>>[];
-
-    // Single-linkage clustering: grow each cluster to include any camera
-    // within alprClusterDistanceMeters of anything already in it.
     const Distance dist = Distance();
-    final List<bool> used = List<bool>.filled(cameras.length, false);
-    final List<List<LatLng>> clusters = <List<LatLng>>[];
 
-    for (int i = 0; i < cameras.length; i++) {
-      if (used[i]) continue;
-      final List<LatLng> cluster = <LatLng>[cameras[i]];
-      used[i] = true;
-      // BFS over the cluster's growing frontier.
-      for (int scan = 0; scan < cluster.length; scan++) {
-        final LatLng c = cluster[scan];
-        for (int j = 0; j < cameras.length; j++) {
-          if (used[j]) continue;
-          if (dist.as(LengthUnit.Meter, c, cameras[j]) <=
-              alprClusterDistanceMeters) {
-            used[j] = true;
-            cluster.add(cameras[j]);
-          }
-        }
-      }
-      clusters.add(cluster);
+    // 1. Drop cameras hugging the endpoints. A zone over the origin or
+    // destination doesn't produce a detour — it produces "no route found".
+    final List<LatLng> routable = cameras.where((LatLng c) {
+      final double toOrigin = dist.as(LengthUnit.Meter, origin, c);
+      final double toDest = dist.as(LengthUnit.Meter, destination, c);
+      return toOrigin > alprExclusionEndpointClearanceMeters &&
+          toDest > alprExclusionEndpointClearanceMeters;
+    }).toList();
+    final int droppedForEndpoints = cameras.length - routable.length;
+    if (routable.isEmpty) {
+      debugPrint('[routing] all ${cameras.length} cameras sit on the '
+          'endpoints — no exclusions (would make the route impossible)');
+      return <Map<String, dynamic>>[];
     }
 
-    // Each cluster → one padded bounding-box polygon. A lone camera still
-    // gets its round octagon (tighter, avoids over-blocking a single street).
+    // 2. Bucket into fixed grid cells (~alprClusterCellMeters on a side).
+    final double latCell = alprClusterCellMeters / 111000.0;
+    final Map<String, List<LatLng>> cells = <String, List<LatLng>>{};
+    for (final LatLng c in routable) {
+      final double lonCell = alprClusterCellMeters /
+          (111000.0 *
+              math.cos(c.latitude * math.pi / 180).abs().clamp(0.01, 1.0));
+      final int row = (c.latitude / latCell).floor();
+      final int col = (c.longitude / lonCell).floor();
+      cells.putIfAbsent('$row:$col', () => <LatLng>[]).add(c);
+    }
+
+    // 3. One polygon per cell: lone cameras keep a tight octagon, groups get
+    // a padded box clamped to alprClusterMaxSpanMeters.
+    //
+    // 4. FINAL GEOMETRY GUARD — the step-1 camera filter isn't enough on its
+    // own: a camera comfortably outside the clearance can still belong to a
+    // zone whose BOX reaches back over the origin (boxes are up to 400 m +
+    // padding wide). A zone sitting on an endpoint doesn't reroute the
+    // driver, it makes the route impossible. So we test the finished polygon
+    // and drop any that boxes in the start or the finish.
+    //
+    // TRADE-OFF, on purpose: if you're parked inside a camera cluster you
+    // WILL pass those cameras — they're unavoidable by definition, you have
+    // to drive out of your own neighbourhood. Getting a working route that
+    // avoids every OTHER camera beats getting no route at all.
     final List<Map<String, dynamic>> polys = <Map<String, dynamic>>[];
-    for (final List<LatLng> cluster in clusters) {
-      if (cluster.length == 1) {
-        polys.add(_circlePolygon(cluster.first, alprExcludeRadiusMeters));
-      } else {
-        polys.add(_clusterBox(cluster, alprExcludeRadiusMeters));
+    int droppedForGeometry = 0;
+    for (final List<LatLng> cluster in cells.values) {
+      final Map<String, dynamic> poly = cluster.length == 1
+          ? _circlePolygon(cluster.first, alprExcludeRadiusMeters)
+          : _clusterBox(cluster, alprClusterPadMeters);
+      if (_zoneBlocksEndpoint(poly, origin, destination)) {
+        droppedForGeometry++;
+        continue;
       }
+      polys.add(poly);
     }
-    debugPrint('[routing] ${cameras.length} cameras → ${clusters.length} '
-        'exclusion polygons after clustering');
+
+    debugPrint('[routing] ${cameras.length} cameras → ${polys.length} zones '
+        '($droppedForEndpoints near endpoints, $droppedForGeometry zones '
+        'boxed in an endpoint)');
     return polys;
   }
 
+  /// True when [poly] sits on (or within clearance of) the route's origin or
+  /// destination — such a zone must be dropped or Valhalla returns no route.
+  /// Uses the polygon's bounding extent, which errs toward keeping the route
+  /// possible. That's the correct direction to err: a driver who reaches
+  /// their destination past one unavoidable camera is better served than a
+  /// driver staring at "route failed".
+  bool _zoneBlocksEndpoint(
+      Map<String, dynamic> poly, LatLng origin, LatLng destination) {
+    final List<dynamic> rings = poly['coordinates'] as List<dynamic>;
+    if (rings.isEmpty) return false;
+    final List<dynamic> ring = rings.first as List<dynamic>;
+    if (ring.isEmpty) return false;
+
+    double minLat = double.infinity, maxLat = -double.infinity;
+    double minLon = double.infinity, maxLon = -double.infinity;
+    for (final dynamic raw in ring) {
+      final List<dynamic> pt = raw as List<dynamic>;
+      final double lon = (pt[0] as num).toDouble();
+      final double lat = (pt[1] as num).toDouble();
+      minLat = math.min(minLat, lat);
+      maxLat = math.max(maxLat, lat);
+      minLon = math.min(minLon, lon);
+      maxLon = math.max(maxLon, lon);
+    }
+
+    // Grow the box by the clearance so an endpoint just outside the edge
+    // still has room to reach a road.
+    final double latBuf = alprExclusionEndpointClearanceMeters / 111000.0;
+    final double cosLat = math
+        .cos(((minLat + maxLat) / 2) * math.pi / 180)
+        .abs()
+        .clamp(0.01, 1.0);
+    final double lonBuf =
+        alprExclusionEndpointClearanceMeters / (111000.0 * cosLat);
+
+    bool inside(LatLng p) =>
+        p.latitude >= minLat - latBuf &&
+        p.latitude <= maxLat + latBuf &&
+        p.longitude >= minLon - lonBuf &&
+        p.longitude <= maxLon + lonBuf;
+
+    return inside(origin) || inside(destination);
+  }
+
   /// Padded axis-aligned bounding box around a cluster of cameras (rectangle
-  /// = 5 points, far cheaper than N octagons).
+  /// = 5 points, far cheaper than N octagons). Hard-clamped to
+  /// [alprClusterMaxSpanMeters] so no single zone can ever blanket enough
+  /// city to make the route impossible.
   Map<String, dynamic> _clusterBox(List<LatLng> cluster, double padMeters) {
     double minLat = cluster.first.latitude, maxLat = cluster.first.latitude;
     double minLon = cluster.first.longitude, maxLon = cluster.first.longitude;
@@ -520,12 +597,27 @@ class RoutingService {
     }
     final double latPad = padMeters / 111000.0;
     final double midLat = (minLat + maxLat) / 2;
-    final double lonPad =
-        padMeters / (111000.0 * math.cos(midLat * math.pi / 180));
+    final double cosLat =
+        math.cos(midLat * math.pi / 180).abs().clamp(0.01, 1.0);
+    final double lonPad = padMeters / (111000.0 * cosLat);
     minLat -= latPad;
     maxLat += latPad;
     minLon -= lonPad;
     maxLon += lonPad;
+
+    // Clamp each dimension around the cluster's centre.
+    final double maxLatSpan = alprClusterMaxSpanMeters / 111000.0;
+    final double maxLonSpan = alprClusterMaxSpanMeters / (111000.0 * cosLat);
+    if (maxLat - minLat > maxLatSpan) {
+      final double mid = (minLat + maxLat) / 2;
+      minLat = mid - maxLatSpan / 2;
+      maxLat = mid + maxLatSpan / 2;
+    }
+    if (maxLon - minLon > maxLonSpan) {
+      final double mid = (minLon + maxLon) / 2;
+      minLon = mid - maxLonSpan / 2;
+      maxLon = mid + maxLonSpan / 2;
+    }
     final List<List<double>> ring = <List<double>>[
       <double>[minLon, minLat],
       <double>[maxLon, minLat],
